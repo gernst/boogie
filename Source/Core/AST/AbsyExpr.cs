@@ -1581,6 +1581,203 @@ namespace Microsoft.Boogie
     }
   }
 
+  public class LowExpr : Expr
+  {
+    private Expr _Expr;
+
+    public override int ContentHash => Util.GetHashCode(262567431, Expr.ContentHash);
+
+    public Expr /*!*/ Expr
+    {
+      get
+      {
+        return _Expr;
+      }
+      set
+      {
+        if (Immutable)
+        {
+          throw new InvalidOperationException("Cannot change Expr of an Immutable LowExpr");
+        }
+
+        _Expr = value;
+      }
+    }
+
+    [ContractInvariantMethod]
+    void ObjectInvariant()
+    {
+      Contract.Invariant(Expr != null);
+    }
+
+    public LowExpr(IToken /*!*/ tok, Expr /*!*/ expr, bool immutable = false)
+      : base(tok, immutable)
+    {
+      Contract.Requires(tok != null);
+      Contract.Requires(expr != null);
+      _Expr = expr;
+      if (immutable)
+      {
+        CachedHashCode = ComputeHashCode();
+      }
+    }
+
+    [Pure]
+    [Reads(ReadsAttribute.Reads.Nothing)]
+    public override bool Equals(object obj)
+    {
+      if (obj == null)
+      {
+        return false;
+      }
+
+      if (!(obj is LowExpr))
+      {
+        return false;
+      }
+
+      LowExpr other = (LowExpr) obj;
+      return object.Equals(this.Expr, other.Expr);
+    }
+
+    [Pure]
+    public override int GetHashCode()
+    {
+      if (Immutable)
+      {
+        return this.CachedHashCode;
+      }
+      else
+      {
+        return ComputeHashCode();
+      }
+    }
+
+    public override int ComputeHashCode()
+    {
+      return this.Expr == null ? 0 : this.Expr.GetHashCode();
+    }
+
+    public override void Emit(TokenTextWriter stream, int contextBindingStrength, bool fragileContext)
+    {
+      //Contract.Requires(stream != null);
+      stream.Write(this, "low(");
+      this.Expr.Emit(stream);
+      stream.Write(")");
+    }
+
+    public override void Resolve(ResolutionContext rc)
+    {
+      //Contract.Requires(rc != null);
+      // if (rc.StateMode != ResolutionContext.State.Two)
+      // {
+      //   rc.Error(this, "old expressions allowed only in two-state contexts");
+      // }
+
+      Expr.Resolve(rc);
+    }
+
+    public override void ComputeFreeVariables(Set /*Variable*/ freeVars)
+    {
+      //Contract.Requires(freeVars != null);
+      Expr.ComputeFreeVariables(freeVars);
+    }
+
+    public override void Typecheck(TypecheckingContext tc)
+    {
+      Expr.Typecheck(tc);
+      Type = Expr.Type;
+    }
+
+    public override Type /*!*/ ShallowType
+    {
+      get
+      {
+        Contract.Ensures(Contract.Result<Type>() != null);
+
+        return Expr.ShallowType;
+      }
+    }
+
+    public override Absy StdDispatch(StandardVisitor visitor)
+    {
+      //Contract.Requires(visitor != null);
+      Contract.Ensures(Contract.Result<Absy>() != null);
+      return visitor.VisitLowExpr(this);
+    }
+      
+  }
+
+
+  public class LowEventExpr : Expr
+  {
+
+    public override int ContentHash => Util.GetHashCode(262567432, 262567433);
+    
+    public LowEventExpr(IToken /*!*/ tok)
+      : base(tok, false)
+    {
+      Contract.Requires(tok != null);
+    }
+
+    [Pure]
+    [Reads(ReadsAttribute.Reads.Nothing)]
+    public override bool Equals(object obj)
+    {
+      if (obj == null)
+      {
+        return false;
+      }
+
+      return obj is LowEventExpr;
+    }
+
+    [Pure]
+    public override int GetHashCode()
+    {
+      return 0;
+    }
+
+    public override int ComputeHashCode()
+    {
+      return 0;
+    }
+    
+    public override void Emit(TokenTextWriter stream, int contextBindingStrength, bool fragileContext)
+    {
+      //Contract.Requires(stream != null);
+      stream.Write(this, "lowEvent");
+    }
+    
+    
+    public override void Resolve(ResolutionContext rc)
+    {
+      //Contract.Requires(rc != null);
+      // nothing to resolve
+    }
+
+    public override void ComputeFreeVariables(Set /*Variable*/ freeVars)
+    {
+      //Contract.Requires(freeVars != null);
+      // no free variables to add
+    }
+
+    public override void Typecheck(TypecheckingContext tc)
+    {
+      //Contract.Requires(tc != null);
+      this.Type = Type.Bool;
+    }
+
+    public override Type /*!*/ ShallowType => Type.Bool;
+
+    public override Absy StdDispatch(StandardVisitor visitor)
+    {
+      //Contract.Requires(visitor != null);
+      Contract.Ensures(Contract.Result<Absy>() != null);
+      return visitor.VisitLowEventExpr(this);
+    }
+  }
+
   [ContractClass(typeof(IAppliableVisitorContracts<>))]
   public interface IAppliableVisitor<T>
   {

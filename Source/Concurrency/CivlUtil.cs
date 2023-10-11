@@ -198,6 +198,11 @@ namespace Microsoft.Boogie
       return new OldExpr(Token.NoToken, expr);
     }
 
+    public static LowExpr Low(Expr expr)
+    {
+      return new LowExpr(Token.NoToken, expr);
+    }
+
     public static ExistsExpr ExistsExpr(List<Variable> dummies, Expr body)
     {
       return new ExistsExpr(Token.NoToken, dummies, body);

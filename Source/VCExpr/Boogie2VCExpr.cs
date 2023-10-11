@@ -469,6 +469,22 @@ namespace Microsoft.Boogie.VCExprAST
       throw new cce.UnreachableException();
     }
 
+    public override Expr VisitLowExpr(LowExpr node)
+    {
+      //Contract.Requires(node != null);
+      Contract.Ensures(Contract.Result<Expr>() != null);
+      Contract.Assert(false);
+      throw new cce.UnreachableException();
+    }
+    
+    public override Expr VisitLowEventExpr(LowEventExpr node)
+    {
+      //Contract.Requires(node != null);
+      Contract.Ensures(Contract.Result<Expr>() != null);
+      Contract.Assert(false);
+      throw new cce.UnreachableException();
+    }
+
     ///////////////////////////////////////////////////////////////////////////////////
 
     public override Expr VisitNAryExpr(NAryExpr node)

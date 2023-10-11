@@ -440,6 +440,14 @@ namespace Microsoft.Boogie
       return base.VisitOldExpr((OldExpr) node.Clone());
     }
 
+    public override Expr VisitLowExpr(LowExpr node)
+    {
+      //Contract.Requires(node != null);
+      Contract.Ensures(Contract.Result<Expr>() != null);
+      return base.VisitLowExpr((LowExpr) node.Clone());
+      
+    }
+
     public override Cmd VisitParCallCmd(ParCallCmd node)
     {
       //Contract.Requires(node != null);
@@ -1132,6 +1140,10 @@ namespace Microsoft.Boogie
           e = (Expr /*!*/) cce.NonNull(this.Visit(node.Expr));
         insideOldExpr = previouslyInOld;
         return e;
+      }
+
+      public override Expr VisitLowExpr(LowExpr node) {
+        return (Expr) cce.NonNull(this.Visit(node.Expr));
       }
     }
   }

@@ -629,6 +629,21 @@ namespace Microsoft.Boogie
       return node;
     }
 
+    public virtual Expr VisitLowExpr(LowExpr node)
+    {
+      Contract.Requires(node != null);  
+      Contract.Ensures(Contract.Result<Expr>() != null);
+      node.Expr = this.VisitExpr(node.Expr);
+      return node;
+    }
+
+    public virtual Expr VisitLowEventExpr(LowEventExpr node)
+    {
+      Contract.Requires(node != null);  
+      Contract.Ensures(Contract.Result<Expr>() != null);
+      return node;
+    }
+
     public virtual Procedure VisitProcedure(Procedure node)
     {
       Contract.Requires(node != null);
@@ -1442,6 +1457,19 @@ namespace Microsoft.Boogie
     {
       Contract.Ensures(Contract.Result<Expr>() == node);
       this.VisitExpr(node.Expr);
+      return node;
+    }
+
+    public override Expr VisitLowExpr(LowExpr node)
+    {
+      Contract.Ensures(Contract.Result<Expr>() == node);
+      this.VisitExpr(node.Expr);
+      return node;
+    }
+
+    public override Expr VisitLowEventExpr(LowEventExpr node)
+    {
+      Contract.Ensures(Contract.Result<Expr>() == node);
       return node;
     }
 

@@ -1397,6 +1397,12 @@ namespace Microsoft.Boogie.AbstractInterpretation
         // don't recurse on subexpression
         return node;
       }
+      
+      public override Expr VisitLowExpr(LowExpr node)
+      {
+        // don't recurse on subexpression
+        return node;
+      }
 
       public override Expr VisitCodeExpr(CodeExpr node)
       {

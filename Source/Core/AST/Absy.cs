@@ -1,10 +1,12 @@
 using System;
+using System.CodeDom.Compiler;
 using System.Linq;
 using System.Collections;
 using System.Diagnostics;
 using System.Collections.Generic;
 using System.Diagnostics.Contracts;
 using System.Security.Cryptography;
+using Core;
 using Microsoft.BaseTypes;
 using Microsoft.Boogie.GraphUtil;
 
@@ -3845,14 +3847,21 @@ namespace Microsoft.Boogie
       Contract.Requires(localVariables != null);
       Contract.Requires(structuredStmts != null);
       Contract.Requires(errorHandler != null);
-      LocVars = localVariables;
+      Mmp = new ModularProductProgram(localVariables, structuredStmts, inParams);
+      LocVars = Mmp.LocalVariables;
+      StructuredStmts = Mmp.StructuredStmts;
+      InParams = Mmp.InParams;
+      /*LocVars = localVariables;
       StructuredStmts = structuredStmts;
-      BigBlocksResolutionContext ctx = new BigBlocksResolutionContext(structuredStmts, errorHandler);
+      InParams = inParams;*/
+      BigBlocksResolutionContext ctx = new BigBlocksResolutionContext(StructuredStmts, errorHandler);
       Blocks = ctx.Blocks;
       BlockPredecessorsComputed = false;
       scc = null;
       Attributes = kv;
     }
+
+    public ModularProductProgram Mmp { get; set; }
 
     public Implementation(IToken tok, string name, List<TypeVariable> typeParams, List<Variable> inParams,
       List<Variable> outParams, List<Variable> localVariables, [Captured] List<Block /*!*/> block)
@@ -3999,6 +4008,7 @@ namespace Microsoft.Boogie
         (this as ICarriesAttributes).ResolveAttributes(rc);
         
         rc.Proc = Proc;
+        Mmp.BuildProcProduct(Proc);
         rc.StateMode = Proc.IsPure ? ResolutionContext.State.StateLess : ResolutionContext.State.Two;
         foreach (Block b in Blocks)
         {
