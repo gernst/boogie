@@ -43,6 +43,16 @@ public class ModularProductProgram
   public void BuildProcProduct(Procedure proc)
   {
     proc.InParams = FlattenVarList(CalculateInParams(proc.InParams));
+    foreach (var req in proc.Requires)
+    {
+      req.Condition = SolveExpr(req.Condition, new IdentifierExpr(Token.NoToken, _majorP),
+        new IdentifierExpr(Token.NoToken, _minorP));
+    }
+    foreach (var ens in proc.Ensures)
+    {
+      ens.Condition = SolveExpr(ens.Condition, new IdentifierExpr(Token.NoToken, _majorP),
+        new IdentifierExpr(Token.NoToken, _minorP));
+    }
   }
 
   private List<(Variable, Variable)> CalculateInParams(List<Variable> inParams)
@@ -77,6 +87,7 @@ public class ModularProductProgram
           Name = _minorPrefix + v.Name
         };
       }
+
       duplicatedVariables.Add((v, newVar));
 
       // _allVariables.Add(v.Name, (v, newVar));
@@ -149,10 +160,11 @@ public class ModularProductProgram
           AssertCmd a => new AssertCmd(a.tok, SolveExpr(a.Expr, majorContext, minorContext)),
           AssumeCmd a => new AssumeCmd(a.tok, SolveExpr(a.Expr, majorContext, minorContext)),
           _ => throw new cce.UnreachableException()
-        };  
+        };
 
-        
-        updatedBlocks.Add(new BigBlock(Token.NoToken, c.ToString().TrimEnd() + FreshAnon(), new List<Cmd> { solvedCmd }, null, null));
+
+        updatedBlocks.Add(new BigBlock(Token.NoToken, c.ToString().TrimEnd() + FreshAnon(), new List<Cmd> { solvedCmd },
+          null, null));
       }
       else
       {
@@ -219,24 +231,28 @@ public class ModularProductProgram
     {
       switch (expr)
       {
-       case LowExpr l:
-         return Expr.Imp(Expr.And(majorContext, minorContext), Expr.Eq(l.Expr, _minorizer.VisitExpr(l.Expr)));
-       case LowEventExpr l:
-         return Expr.And(majorContext, minorContext);
-       case NAryExpr n:
-         if (!n.Type.Equals(Type.Bool)) {
+        case LowExpr l:
+          return Expr.Imp(Expr.And(majorContext, minorContext), Expr.Eq(l.Expr, _minorizer.VisitExpr(l.Expr)));
+        case LowEventExpr l:
+          return Expr.And(majorContext, minorContext);
+        case NAryExpr n:
+          if (!n.Type.Equals(Type.Bool))
+          {
             throw new ArgumentException();
-         }
-         return new NAryExpr(n.tok, n.Fun, n.Args.Select((e => SolveExpr(e, majorContext, minorContext))).ToList());
-       case ExistsExpr e:
-         return new ExistsExpr(e.tok, e.Dummies.SelectMany(v => new List<Variable> { v, _minorizer.VisitVariable(v)}).ToList(),
-           SolveExpr(e.Body, majorContext, minorContext));
-       case ForallExpr f:
-         return new ExistsExpr(f.tok, f.Dummies.SelectMany(v => new List<Variable> { v, _minorizer.VisitVariable(v)}).ToList(),
-           SolveExpr(f.Body, majorContext, minorContext));
-       default:
-         throw new ArgumentException();
-      } 
+          }
+
+          return new NAryExpr(n.tok, n.Fun, n.Args.Select((e => SolveExpr(e, majorContext, minorContext))).ToList());
+        case ExistsExpr e:
+          return new ExistsExpr(e.tok,
+            e.Dummies.SelectMany(v => new List<Variable> { v, _minorizer.VisitVariable(v) }).ToList(),
+            SolveExpr(e.Body, majorContext, minorContext));
+        case ForallExpr f:
+          return new ExistsExpr(f.tok,
+            f.Dummies.SelectMany(v => new List<Variable> { v, _minorizer.VisitVariable(v) }).ToList(),
+            SolveExpr(f.Body, majorContext, minorContext));
+        default:
+          throw new ArgumentException();
+      }
     }
 
     var majorImp = Expr.Imp(majorContext, expr);
@@ -250,8 +266,8 @@ public class ModularProductProgram
   }
 
   private List<Variable> FlattenVarList(List<(Variable, Variable)> varList)
-  { 
+  {
     return varList.SelectMany(tuple => new List<Variable> { tuple.Item1, tuple.Item2 })
-        .ToList();
+      .ToList();
   }
 }
