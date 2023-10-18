@@ -3847,10 +3847,11 @@ namespace Microsoft.Boogie
       Contract.Requires(localVariables != null);
       Contract.Requires(structuredStmts != null);
       Contract.Requires(errorHandler != null);
-      Mmp = new ModularProductProgram(localVariables, structuredStmts, inParams);
+      Mmp = new ModularProductProgram(localVariables, structuredStmts, inParams, outParams);
       LocVars = Mmp.LocalVariables;
       StructuredStmts = Mmp.StructuredStmts;
       InParams = Mmp.InParams;
+      OutParams = Mmp.OutParams;
       /*LocVars = localVariables;
       StructuredStmts = structuredStmts;
       InParams = inParams;*/

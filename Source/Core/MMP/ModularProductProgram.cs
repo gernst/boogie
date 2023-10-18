@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection.Metadata;
+using System.Runtime.InteropServices;
 using System.Security;
 using Microsoft.Boogie;
 using LocalVariable = Microsoft.Boogie.LocalVariable;
@@ -15,11 +16,14 @@ public class ModularProductProgram
   private List<BigBlock> _bigBlockList;
   private List<(Variable, Variable)> _localVariables;
   private List<(Variable, Variable)> _inParams;
+  private List<(Variable, Variable)> _outParams;
   private Dictionary<string, (Variable, Variable)> _allVariables;
 
   public List<Variable> LocalVariables => FlattenVarList(_localVariables);
 
   public List<Variable> InParams => FlattenVarList(_inParams);
+  
+  public List<Variable> OutParams => FlattenVarList(_outParams);
 
   public StmtList StructuredStmts => new(_bigBlockList, Token.NoToken);
 
@@ -30,11 +34,12 @@ public class ModularProductProgram
   private string _majorPrefix = "major_";
   private int _anon = 0;
 
-  public ModularProductProgram(List<Variable> localVariables, StmtList structuredStmts, List<Variable> inParams)
+  public ModularProductProgram(List<Variable> localVariables, StmtList structuredStmts, List<Variable> inParams, List<Variable> outParams)
   {
     _localVariables = DuplicateVariables(localVariables);
     _inParams = CalculateInParams(inParams);
-    _minorizer = new MinorizeVisitor(_inParams.Concat(_localVariables).ToDictionary(t => t.Item1.Name, t => t));
+    _outParams = DuplicateVariables(outParams);
+    _minorizer = new MinorizeVisitor(_inParams.Concat(_outParams).Concat(_localVariables).ToDictionary(t => t.Item1.Name, t => t));
 
     _bigBlockList = CalculateStructuredStmts(structuredStmts, new IdentifierExpr(Token.NoToken, _majorP),
       new IdentifierExpr(Token.NoToken, _minorP));
@@ -43,6 +48,7 @@ public class ModularProductProgram
   public void BuildProcProduct(Procedure proc)
   {
     proc.InParams = FlattenVarList(CalculateInParams(proc.InParams));
+    proc.OutParams = FlattenVarList(DuplicateVariables(proc.OutParams));
     foreach (var req in proc.Requires)
     {
       req.Condition = SolveExpr(req.Condition, new IdentifierExpr(Token.NoToken, _majorP),
@@ -81,16 +87,17 @@ public class ModularProductProgram
       }
       else
       {
+        Formal formal = (Formal)v;
         newVar = new Formal(Token.NoToken,
-          new TypedIdent(Token.NoToken, _minorPrefix + v.Name, v.TypedIdent.Type), true)
+          new TypedIdent(Token.NoToken, _minorPrefix + v.Name, v.TypedIdent.Type), formal.InComing)
         {
           Name = _minorPrefix + v.Name
         };
       }
+      
+      
 
       duplicatedVariables.Add((v, newVar));
-
-      // _allVariables.Add(v.Name, (v, newVar));
     }
 
     return duplicatedVariables;
@@ -123,6 +130,23 @@ public class ModularProductProgram
         var minorElseGuard = Expr.And(minorContext, Expr.Not(_minorizer.VisitExpr(originalIfCmd.Guard)));
         newBlocks.AddRange(CalculateStructuredStmts(originalIfCmd.elseBlock, majorElseGuard, minorElseGuard));
       }
+      else if (bb.ec is WhileCmd)
+      {
+        WhileCmd whileCmd = (WhileCmd)bb.ec;
+
+        whileCmd.Invariants.ForEach(x =>
+        {
+          x.Expr = SolveExpr(x.Expr, majorContext, minorContext);
+        });
+
+        var majorWhileGuard = Expr.And(majorContext, whileCmd.Guard);
+        var minorWhileGuard = Expr.And(minorContext, _minorizer.VisitExpr(whileCmd.Guard));
+        whileCmd.Guard = Expr.Or(majorWhileGuard, minorWhileGuard);
+        whileCmd.Body = new StmtList(CalculateStructuredStmts(whileCmd.Body, majorWhileGuard, minorWhileGuard),
+          whileCmd.Body.EndCurly);
+
+        newBlocks.Add(new BigBlock(Token.NoToken, bb.LabelName, new List<Cmd>(), whileCmd, null));
+      }
     }
 
     return newBlocks;
@@ -141,15 +165,14 @@ public class ModularProductProgram
         for (int i = 0; i < assignCmd.Lhss.Count; i++)
         {
           var lhs = assignCmd.Lhss[i];
-          var correspondingVariable =
-            LocalVariables.Find(v => v.Name == _minorPrefix + lhs.DeepAssignedIdentifier.Name);
+          var correspondingVariable = (IdentifierExpr)_minorizer.VisitIdentifierExpr(lhs.DeepAssignedIdentifier);
           var minorLhs = new SimpleAssignLhs(Token.NoToken,
-            Expr.Ident(correspondingVariable));
+            correspondingVariable);
 
           lhss.Add(minorLhs);
         }
 
-        AssignCmd minorAssignCmd = new AssignCmd(Token.NoToken, lhss, assignCmd.Rhss);
+        AssignCmd minorAssignCmd = new AssignCmd(Token.NoToken, lhss, assignCmd.Rhss.Select(e => _minorizer.VisitExpr(e)).ToList());
 
         updatedBlocks.AddRange(CreateNewIfBigBlockPair(assignCmd, minorAssignCmd, majorContext, minorContext));
       }
@@ -165,6 +188,58 @@ public class ModularProductProgram
 
         updatedBlocks.Add(new BigBlock(Token.NoToken, c.ToString().TrimEnd() + FreshAnon(), new List<Cmd> { solvedCmd },
           null, null));
+      }
+      else if (c is CallCmd)
+      {
+        var callCmd = (CallCmd)c;
+        callCmd.Ins = callCmd.Ins
+          .SelectMany(e => new List<Expr> { e, _minorizer.VisitExpr(e) })
+          .Prepend(minorContext)
+          .Prepend(majorContext)
+          .ToList();
+
+        var tempVars = callCmd.Outs.Select(e =>
+        {
+          var typedIdent = new TypedIdent(Token.NoToken, e.Name + "_temp" + FreshAnon(), GetTypeFromVarName(e.Name));
+          return new LocalVariable(Token.NoToken, typedIdent);
+        }).ToList().ConvertAll(v => (Variable)v);
+        var tempOutVars = AddLocalVars(tempVars);
+
+        var originalOuts = callCmd.Outs;
+        callCmd.Outs = FlattenVarList(tempOutVars).Select(Expr.Ident).ToList();
+        
+        // callCmd.Outs = callCmd.Outs
+        //   .SelectMany(e => new List<IdentifierExpr> { e, (IdentifierExpr)_minorizer.VisitIdentifierExpr(e) })
+        //   .ToList();
+
+        var majorTempOutExpr = tempOutVars.Select(x => (Expr)Expr.Ident(x.Item1)).ToList();
+        var majorLhs = originalOuts.Select(e => (AssignLhs)new SimpleAssignLhs(e.tok, e)).ToList();
+        var majorAssignCmd = new AssignCmd(Token.NoToken, majorLhs, majorTempOutExpr);
+        
+        var minorTempOutVars = tempOutVars.Select(x => (Expr)Expr.Ident(x.Item2)).ToList();
+        var minorLhs = originalOuts
+          .Select(e => 
+            (AssignLhs)new SimpleAssignLhs(e.tok, (IdentifierExpr)_minorizer.VisitIdentifierExpr(e))
+          )
+          .ToList();
+        var minorAssignCmd = new AssignCmd(Token.NoToken, minorLhs, minorTempOutVars);
+
+        var callBB = new BigBlock(
+          Token.NoToken, 
+          callCmd.ToString().TrimEnd(), 
+          new List<Cmd> { callCmd }, 
+          null, null);
+
+        var tempAssignmentBBs = CreateNewIfBigBlockPair(majorAssignCmd, minorAssignCmd, majorContext, minorContext);
+        var allBBs = tempAssignmentBBs.Prepend(callBB).ToList();
+        var ifAnyContext = new IfCmd(
+          Token.NoToken, 
+          Expr.Or(majorContext, minorContext), 
+          new StmtList(allBBs, Token.NoToken), 
+          null, null);
+
+        var newBB = new BigBlock(Token.NoToken, "call" + FreshAnon(), new List<Cmd>(), ifAnyContext, null);
+        updatedBlocks.Add(newBB);
       }
       else
       {
@@ -269,5 +344,23 @@ public class ModularProductProgram
   {
     return varList.SelectMany(tuple => new List<Variable> { tuple.Item1, tuple.Item2 })
       .ToList();
+  }
+
+  private List<(Variable, Variable)> AddLocalVars(List<Variable> variables)
+  {
+    var duplicatedVars = DuplicateVariables(variables);
+    _localVariables.AddRange(duplicatedVars);
+    return duplicatedVars;
+  }
+
+  private void SplitVariablesByContext(List<Variable> variables, out List<Variable> majorVars, out List<Variable> minorVars)
+  {
+    majorVars = variables.Where((item, index) => index % 2 == 0).ToList();
+    minorVars = variables.Where((item, index) => index % 2 != 0).ToList();
+  }
+
+  private Type GetTypeFromVarName(String name)
+  {
+    return _localVariables.Select(x => x.Item1).First(x => x.Name.Equals(name)).TypedIdent.Type;
   }
 }
