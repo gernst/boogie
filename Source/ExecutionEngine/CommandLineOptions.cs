@@ -234,6 +234,8 @@ namespace Microsoft.Boogie
 
     public int /*(0:3)*/
       ErrorTrace { get; set; } = 1;
+    
+    public bool SecurityVerify { get; set; }
 
     public bool IntraproceduralInfer { get; set; }= true;
 
@@ -1274,6 +1276,7 @@ namespace Microsoft.Boogie
               ps.CheckBooleanFlag("overlookTypeErrors", x => OverlookBoogieTypeErrors = x) ||
               ps.CheckBooleanFlag("noVerify", x => Verify = x, false) ||
               ps.CheckBooleanFlag("traceverify", x => TraceVerify = x) ||
+              ps.CheckBooleanFlag("securityverify", x  => SecurityVerify = x) ||
               ps.CheckBooleanFlag("alwaysAssumeFreeLoopInvariants", x => AlwaysAssumeFreeLoopInvariants = x, true) ||
               ps.CheckBooleanFlag("proverHelp", x => proverHelpRequested = x) ||
               ps.CheckBooleanFlag("proverLogAppend", x => ProverLogFileAppend = x) ||
@@ -1834,6 +1837,9 @@ namespace Microsoft.Boogie
                 0 = do not coalesce blocks
                 1 = coalesce blocks (default)
   /traceverify  print debug output during verification condition generation
+  /securityverify
+                enable verification of secrurity specifications with low
+                and lowevent expressions
   /subsumption:<c>
                 apply subsumption to asserted conditions:
                 0 - never, 1 - not for quantifiers, 2 (default) - always

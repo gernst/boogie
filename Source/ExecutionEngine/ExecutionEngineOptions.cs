@@ -24,6 +24,7 @@ public interface ExecutionEngineOptions : HoudiniOptions, ConcurrencyOptions
   HashSet<string> Libraries { get; set; }
   bool NoResolve { get; }
   bool NoTypecheck { get; }
+  bool SecurityVerify { get; }
 
   List<string> ProcsToCheck { get; }
   List<string> ProcsToIgnore { get; }

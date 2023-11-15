@@ -46,10 +46,12 @@ public class MinorizeVisitor : Duplicator
     return new BoundVariable(node.tok, new TypedIdent(node.TypedIdent.tok, "minor_" + node.TypedIdent.Name, node.TypedIdent.Type));
   }
 
-  public override Expr VisitIdentifierExpr(IdentifierExpr node)
-  {
-    var newIdentifierExpr = new IdentifierExpr(Token.NoToken, _variables[node.Name].Item2);
-    return newIdentifierExpr;
+  public override Expr VisitIdentifierExpr(IdentifierExpr node) {
+    if (_variables.TryGetValue(node.Name, out var variable)) {
+      return new IdentifierExpr(node.tok, variable.Item2);
+    }
+
+    return node;
   }
 
   public override Expr VisitForallExpr(ForallExpr node)
@@ -60,5 +62,11 @@ public class MinorizeVisitor : Duplicator
   public override Expr VisitExistsExpr(ExistsExpr node)
   {
     return new ExistsExpr(node.tok, node.Dummies, this.AddTemporaryVariables(node.Dummies.Select(v => (v, v)).ToList()).VisitExpr(node.Body));
+  }
+
+  public override Expr VisitLambdaExpr(LambdaExpr node)
+  {
+    return new LambdaExpr(node.tok, node.TypeParameters, node.Dummies, node.Attributes,
+      this.AddTemporaryVariables(node.Dummies.Select(v => (v, v)).ToList()).VisitExpr(node.Body));
   }
 }

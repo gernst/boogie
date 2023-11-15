@@ -1686,7 +1686,7 @@ namespace Microsoft.Boogie
     public override void Typecheck(TypecheckingContext tc)
     {
       Expr.Typecheck(tc);
-      Type = Expr.Type;
+      Type = Type.Bool;
     }
 
     public override Type /*!*/ ShallowType

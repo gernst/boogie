@@ -8,113 +8,56 @@ using System.Security;
 using Microsoft.Boogie;
 using LocalVariable = Microsoft.Boogie.LocalVariable;
 using Type = Microsoft.Boogie.Type;
+using Util = Core.Security.Util;
 
 namespace Core;
 
-public class ModularProductProgram
+public class ImplementationMpp
 {
   private List<BigBlock> _bigBlockList;
   private List<(Variable, Variable)> _localVariables;
   private List<(Variable, Variable)> _inParams;
   private List<(Variable, Variable)> _outParams;
-  private Dictionary<string, (Variable, Variable)> _allVariables;
 
-  public List<Variable> LocalVariables => FlattenVarList(_localVariables);
+  public List<Variable> LocalVariables => Util.FlattenVarList(_localVariables);
 
-  public List<Variable> InParams => FlattenVarList(_inParams);
+  public List<Variable> InParams => Util.FlattenVarList(_inParams);
   
-  public List<Variable> OutParams => FlattenVarList(_outParams);
+  public List<Variable> OutParams => Util.FlattenVarList(_outParams);
 
   public StmtList StructuredStmts => new(_bigBlockList, Token.NoToken);
+  
+  public Implementation Implementation { get; }
 
-  private Variable _majorP;
-  private Variable _minorP;
   private MinorizeVisitor _minorizer;
   private IdentifierTypeVisitor _typeVisitor;
-  private static string _minorPrefix = "minor_";
-  private static string _majorPrefix = "major_";
   private int _anon = 0;
 
-  public ModularProductProgram(List<Variable> localVariables, StmtList structuredStmts, List<Variable> inParams, List<Variable> outParams)
+  public ImplementationMpp(Implementation implementation)
   {
-    _localVariables = DuplicateVariables(localVariables);
-    _inParams = CalculateInParams(inParams);
-    _outParams = DuplicateVariables(outParams);
+    _localVariables = Util.DuplicateVariables(implementation.LocVars);
+    _inParams = Util.CalculateInParams(implementation.InParams);
+    _outParams = Util.DuplicateVariables(implementation.OutParams);
+    
     _minorizer = new MinorizeVisitor(_inParams.Concat(_outParams).Concat(_localVariables).ToDictionary(t => t.Item1.Name, t => t));
-    _typeVisitor = new IdentifierTypeVisitor(inParams.Concat(localVariables).ToList());
+    _typeVisitor = new IdentifierTypeVisitor(implementation.InParams.Concat(implementation.LocVars).ToList());
 
-    _bigBlockList = CalculateStructuredStmts(structuredStmts, new IdentifierExpr(Token.NoToken, _majorP),
-      new IdentifierExpr(Token.NoToken, _minorP));
-  }
+    _bigBlockList = CalculateStructuredStmts(implementation.StructuredStmts, new IdentifierExpr(Token.NoToken, Util.MajorP),
+      new IdentifierExpr(Token.NoToken, Util.MinorP));
 
-  public void BuildProcProduct(Procedure proc)
-  {
-    proc.InParams = FlattenVarList(CalculateInParams(proc.InParams));
-    proc.OutParams = FlattenVarList(DuplicateVariables(proc.OutParams));
-    foreach (var req in proc.Requires)
-    {
-      req.Condition = SolveExpr(req.Condition, new IdentifierExpr(Token.NoToken, _majorP),
-        new IdentifierExpr(Token.NoToken, _minorP), _minorizer);
-    }
-    foreach (var ens in proc.Ensures)
-    {
-      ens.Condition = SolveExpr(ens.Condition, new IdentifierExpr(Token.NoToken, _majorP),
-        new IdentifierExpr(Token.NoToken, _minorP), _minorizer);
-    }
-  }
+    Implementation = new Implementation(
+      implementation.tok,
+      implementation.Name,
+      implementation.TypeParameters,
+      Util.FlattenVarList(_inParams),
+      Util.FlattenVarList(_outParams),
+      Util.FlattenVarList(_localVariables),
+      new StmtList(_bigBlockList, Token.NoToken));
 
-  private List<(Variable, Variable)> CalculateInParams(List<Variable> inParams)
-  {
-    var duplicatedVariables = DuplicateVariables(inParams);
-    _majorP = new Formal(Token.NoToken, new TypedIdent(Token.NoToken, "major_p", Type.Bool), true);
-    _minorP = new Formal(Token.NoToken, new TypedIdent(Token.NoToken, "minor_p", Type.Bool), true);
-    // _allVariables.Add(_majorP.Name, (_majorP, _minorP));
-    duplicatedVariables.Insert(0, (_majorP, _minorP));
-    return duplicatedVariables;
-  }
-
-  public static List<(Variable, Variable)> DuplicateVariables(List<Variable> localVariables)
-  {
-    var duplicatedVariables = new List<(Variable, Variable)>();
-    foreach (var v in localVariables)
-    {
-      Variable newVar;
-      switch (v)
-      {
-        case LocalVariable:
-          newVar = new LocalVariable(v.tok,
-            new TypedIdent(v.TypedIdent.tok, _minorPrefix + v.Name, v.TypedIdent.Type))
-          {
-            Name = _minorPrefix + v.Name
-          };
-          break;
-        case Formal formal:
-          newVar = new Formal(formal.tok,
-            new TypedIdent(formal.TypedIdent.tok, _minorPrefix + formal.Name, formal.TypedIdent.Type), formal.InComing)
-          {
-            Name = _minorPrefix + formal.Name
-          };
-          break;
-        case BoundVariable:
-          newVar = new BoundVariable(v.tok,
-            new TypedIdent(v.TypedIdent.tok, _minorPrefix + v.Name, v.TypedIdent.Type))
-          {
-            Name = _minorPrefix + v.Name
-          };
-          break;
-        default:
-          var duplicator = new Duplicator();
-          newVar = duplicator.VisitVariable(v);
-          newVar.Name = _minorPrefix + newVar.Name;
-          break;
-      }
-
-      
-
-      duplicatedVariables.Add((v, newVar));
-    }
-
-    return duplicatedVariables;
+    // implementation.LocVars = Util.FlattenVarList(_localVariables);
+    // implementation.InParams = Util.FlattenVarList(_inParams);
+    // implementation.OutParams = Util.FlattenVarList(_outParams);
+    // implementation.StructuredStmts = new StmtList(_bigBlockList, Token.NoToken);
   }
 
   public List<BigBlock> CalculateStructuredStmts(StmtList structuredStmts, Expr majorContext, Expr minorContext)
@@ -147,7 +90,7 @@ public class ModularProductProgram
       {
         whileCmd.Invariants.ForEach(x =>
         {
-          x.Expr = SolveExpr(x.Expr, majorContext, minorContext, _minorizer);
+          x.Expr = Util.SolveExpr(x.Expr, majorContext, minorContext, _minorizer);
         });
 
         var majorWhileGuard = Expr.And(majorContext, whileCmd.Guard);
@@ -191,8 +134,8 @@ public class ModularProductProgram
         {
           Cmd solvedCmd = c switch
           {
-            AssertCmd a => new AssertCmd(a.tok, SolveExpr(a.Expr, majorContext, minorContext, _minorizer)),
-            AssumeCmd a => new AssumeCmd(a.tok, SolveExpr(a.Expr, majorContext, minorContext, _minorizer)),
+            AssertCmd a => new AssertCmd(a.tok, Util.SolveExpr(a.Expr, majorContext, minorContext, _minorizer)),
+            AssumeCmd a => new AssumeCmd(a.tok, Util.SolveExpr(a.Expr, majorContext, minorContext, _minorizer)),
             _ => throw new cce.UnreachableException()
           };
 
@@ -244,8 +187,8 @@ public class ModularProductProgram
 
           var tempOutAssignmentBBs = CreateNewIfBigBlockPair(majorOutAssignCmd, minorOutAssignCmd, majorContext, minorContext);
         
-          callCmd.Outs = FlattenVarList(dupTempOutVars).Select(Expr.Ident).ToList();
-          callCmd.Ins = FlattenVarList(dupTempInVars)
+          callCmd.Outs = Util.FlattenVarList(dupTempOutVars).Select(Expr.Ident).ToList();
+          callCmd.Ins = Util.FlattenVarList(dupTempInVars)
             .Select(Expr.Ident)
             .Prepend(minorContext)
             .Prepend(majorContext)
@@ -283,8 +226,7 @@ public class ModularProductProgram
   private IEnumerable<BigBlock> CreateNewIfBigBlockPair(Cmd majorCmd, Cmd minorCmd, Expr majorContext, Expr minorContext)
   {
     var majorInternalBlock = new BigBlock(
-      Token.NoToken,
-      _majorPrefix + majorCmd.ToString().TrimEnd() + "_Then" + FreshAnon(),
+      Token.NoToken, Util.MajorPrefix + majorCmd.ToString().TrimEnd() + "_Then" + FreshAnon(),
       new List<Cmd>() { majorCmd },
       null,
       null
@@ -297,16 +239,14 @@ public class ModularProductProgram
       null
     );
     var majorBlock = new BigBlock(
-      Token.NoToken,
-      _majorPrefix + majorCmd.ToString().TrimEnd() + FreshAnon(),
+      Token.NoToken, Util.MajorPrefix + majorCmd.ToString().TrimEnd() + FreshAnon(),
       new List<Cmd>(),
       majorIf,
       null
     );
 
     var minorInternalBlock = new BigBlock(
-      Token.NoToken,
-      _minorPrefix + majorCmd.ToString().TrimEnd() + "_Then" + FreshAnon(),
+      Token.NoToken, Util.MinorPrefix + majorCmd.ToString().TrimEnd() + "_Then" + FreshAnon(),
       new List<Cmd>() { minorCmd },
       null,
       null
@@ -319,8 +259,7 @@ public class ModularProductProgram
       null
     );
     var minorBlock = new BigBlock(
-      Token.NoToken,
-      _minorPrefix + majorCmd.ToString().TrimEnd() + FreshAnon(),
+      Token.NoToken, Util.MinorPrefix + majorCmd.ToString().TrimEnd() + FreshAnon(),
       new List<Cmd>(),
       minorIf,
       null
@@ -329,85 +268,16 @@ public class ModularProductProgram
     return new List<BigBlock>() { majorBlock, minorBlock };
   }
 
-  private Expr SolveExpr(Expr expr, Expr majorContext, Expr minorContext, MinorizeVisitor minorizer)
-  {
-    if (RelationalChecker.IsRelational(expr))
-    {
-      switch (expr)
-      {
-        case LowExpr l:
-          return Expr.Imp(Expr.And(majorContext, minorContext), Expr.Eq(l.Expr, minorizer.VisitExpr(l.Expr)));
-        case LowEventExpr l:
-          return Expr.And(majorContext, minorContext);
-        case NAryExpr n:
-          // if (!n.Type.Equals(Type.Bool))
-          // {
-          //   throw new ArgumentException();
-          // }
-
-          return new NAryExpr(n.tok, n.Fun, n.Args.Select((e => SolveExpr(e, majorContext, minorContext, minorizer))).ToList());
-        case ExistsExpr e:
-        {
-          var duplicatedBounds = DuplicateVariables(e.Dummies);
-          var adaptedMinorizer = minorizer.AddTemporaryVariables(duplicatedBounds);
-          return new ExistsExpr(e.tok,
-            FlattenVarList(duplicatedBounds),
-            SolveExpr(e.Body, majorContext, minorContext, adaptedMinorizer));
-        }
-        case ForallExpr f:
-        {
-          var duplicatedBounds = DuplicateVariables(f.Dummies);
-          var adaptedMinorizer = minorizer.AddTemporaryVariables(duplicatedBounds);
-          return new ForallExpr(f.tok,
-            FlattenVarList(duplicatedBounds),
-            SolveExpr(f.Body, majorContext, minorContext, adaptedMinorizer));
-        }
-        default:
-          throw new ArgumentException();
-      }
-    }
-
-    if (expr is QuantifierExpr q)
-    {
-      var duplicatedBounds = DuplicateVariables(q.Dummies);
-      var adaptedMinorizer = minorizer.AddTemporaryVariables(duplicatedBounds);
-      q.Dummies = FlattenVarList(duplicatedBounds);
-      var majorImp = Expr.Imp(majorContext, q.Body);
-      var minorImp = Expr.Imp(minorContext, adaptedMinorizer.VisitExpr(q.Body));
-
-      q.Body = Expr.And(majorImp, minorImp);
-      return q;
-    }
-    else
-    {
-      var majorImp = Expr.Imp(majorContext, expr);
-      var minorImp = Expr.Imp(minorContext, minorizer.VisitExpr(expr));
-      return Expr.And(majorImp, minorImp);
-    }
-  }
-
   private int FreshAnon()
   {
     return _anon++;
   }
 
-  public static List<Variable> FlattenVarList(List<(Variable, Variable)> varList)
-  {
-    return varList.SelectMany(tuple => new List<Variable> { tuple.Item1, tuple.Item2 })
-      .ToList();
-  }
-
   private List<(Variable, Variable)> AddLocalVars(List<Variable> variables)
   {
-    var duplicatedVars = DuplicateVariables(variables);
+    var duplicatedVars = Util.DuplicateVariables(variables);
     _localVariables.AddRange(duplicatedVars);
     return duplicatedVars;
-  }
-
-  private void SplitVariablesByContext(List<Variable> variables, out List<Variable> majorVars, out List<Variable> minorVars)
-  {
-    majorVars = variables.Where((item, index) => index % 2 == 0).ToList();
-    minorVars = variables.Where((item, index) => index % 2 != 0).ToList();
   }
 
   private Type GetTypeFromVarName(String name)

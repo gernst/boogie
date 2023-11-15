@@ -3847,22 +3847,19 @@ namespace Microsoft.Boogie
       Contract.Requires(localVariables != null);
       Contract.Requires(structuredStmts != null);
       Contract.Requires(errorHandler != null);
-      Mmp = new ModularProductProgram(localVariables, structuredStmts, inParams, outParams);
-      LocVars = Mmp.LocalVariables;
-      StructuredStmts = Mmp.StructuredStmts;
-      InParams = Mmp.InParams;
-      OutParams = Mmp.OutParams;
-      /*LocVars = localVariables;
+      // Mmp = new ImplementationMpp(localVariables, structuredStmts, inParams, outParams);
+      // LocVars = Mmp.LocalVariables;
+      // StructuredStmts = Mmp.StructuredStmts;
+      // InParams = Mmp.InParams;
+      // OutParams = Mmp.OutParams;
+      LocVars = localVariables;
       StructuredStmts = structuredStmts;
-      InParams = inParams;*/
       BigBlocksResolutionContext ctx = new BigBlocksResolutionContext(StructuredStmts, errorHandler);
       Blocks = ctx.Blocks;
       BlockPredecessorsComputed = false;
       scc = null;
       Attributes = kv;
     }
-
-    public ModularProductProgram Mmp { get; set; }
 
     public Implementation(IToken tok, string name, List<TypeVariable> typeParams, List<Variable> inParams,
       List<Variable> outParams, List<Variable> localVariables, [Captured] List<Block /*!*/> block)
@@ -4009,7 +4006,6 @@ namespace Microsoft.Boogie
         (this as ICarriesAttributes).ResolveAttributes(rc);
         
         rc.Proc = Proc;
-        Mmp.BuildProcProduct(Proc);
         rc.StateMode = Proc.IsPure ? ResolutionContext.State.StateLess : ResolutionContext.State.Two;
         foreach (Block b in Blocks)
         {

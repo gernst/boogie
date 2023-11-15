@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Collections.Specialized;
 using System.Diagnostics.Contracts;
 using System.IO;
 using System.Linq;
@@ -15,6 +16,7 @@ using System.Reactive.Subjects;
 using System.Reactive.Threading.Tasks;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices.ComTypes;
+using Core.Security;
 using VCGeneration;
 
 namespace Microsoft.Boogie
@@ -138,6 +140,10 @@ namespace Microsoft.Boogie
       
       if (Options.PrintFile != null) {
         PrintBplFile(Options.PrintFile, program, false, true, Options.PrettyPrint);
+      }
+
+      if (Options.SecurityVerify) {
+        Security.CalculateMpp(program);
       }
 
       PipelineOutcome outcome = ResolveAndTypecheck(program, bplFileName, out var civlTypeChecker);
