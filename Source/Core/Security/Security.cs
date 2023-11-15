@@ -29,5 +29,22 @@ public static class Security
     {
       ProcedureMpp.CalculateProcedureMpp(proc);
     }
+
+    var minorGlobals = program.GlobalVariables
+      .Where(glob => glob.IsMutable)
+      .Select(glob =>
+      {
+        var minorGlob = new GlobalVariable(glob.tok,
+          new TypedIdent(glob.TypedIdent.tok, Util.MinorPrefix + glob.Name, glob.TypedIdent.Type));
+        var minorizer = new MinorizeVisitor(new Dictionary<string, (Variable, Variable)>
+          { { glob.Name, (glob, minorGlob) } });
+        if (glob.TypedIdent.WhereExpr != null)
+        {
+          minorGlob.TypedIdent.WhereExpr = minorizer.VisitExpr(glob.TypedIdent.WhereExpr);
+        }
+        return minorGlob;
+      })
+      .ToList();
+    program.AddTopLevelDeclarations(minorGlobals);
   }
 }
