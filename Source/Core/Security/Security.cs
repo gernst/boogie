@@ -9,28 +9,7 @@ public static class Security
 
   public static void CalculateMpp(Program program)
   {
-
-    var newImplementations = program.Implementations.Select(i => new ImplementationMpp(i).Implementation).ToList(); 
-    program.RemoveTopLevelDeclarations(dec => dec is Implementation);
-    program.AddTopLevelDeclarations(newImplementations);
-    
-    // foreach (var implementation in program.Implementations)
-    // {
-    //   var implementationMpp = new ImplementationMpp(implementation);
-    //   implementation.LocVars = implementationMpp.LocalVariables;
-    //   implementation.InParams = implementationMpp.InParams;
-    //   implementation.OutParams = implementationMpp.OutParams;
-    //   implementation.StructuredStmts = implementationMpp.StructuredStmts;
-    //   BigBlocksResolutionContext ctx = new BigBlocksResolutionContext(implementation.StructuredStmts, new Errors());
-    //   implementation.Blocks = ctx.Blocks;
-    // }
-
-    foreach (var proc in program.Procedures)
-    {
-      ProcedureMpp.CalculateProcedureMpp(proc);
-    }
-
-    var minorGlobals = program.GlobalVariables
+    var duplicatedMutGlobals = program.GlobalVariables
       .Where(glob => glob.IsMutable)
       .Select(glob =>
       {
@@ -42,9 +21,26 @@ public static class Security
         {
           minorGlob.TypedIdent.WhereExpr = minorizer.VisitExpr(glob.TypedIdent.WhereExpr);
         }
-        return minorGlob;
+        return (glob, minorGlob);
       })
       .ToList();
-    program.AddTopLevelDeclarations(minorGlobals);
+
+    var globalVariableDict = program.GlobalVariables
+      .Where(glob => !glob.IsMutable)
+      .Concat(program.Constants.Cast<Variable>())
+      .Select(glob => (glob, glob))
+      .Concat(duplicatedMutGlobals.Select(t => ((Variable)t.glob, (Variable)t.minorGlob)))
+      .ToDictionary(t => t.Item1.Name, t => t);
+    
+    program.AddTopLevelDeclarations(duplicatedMutGlobals.Select(x => x.minorGlob));
+    
+    var newImplementations = program.Implementations.Select(i => new ImplementationMpp(i, globalVariableDict).Implementation).ToList(); 
+    program.RemoveTopLevelDeclarations(dec => dec is Implementation);
+    program.AddTopLevelDeclarations(newImplementations);
+
+    foreach (var proc in program.Procedures)
+    {
+      ProcedureMpp.CalculateProcedureMpp(proc, globalVariableDict);
+    }
   }
 }

@@ -22,27 +22,30 @@ public class ImplementationMpp
   public List<Variable> LocalVariables => Util.FlattenVarList(_localVariables);
 
   public List<Variable> InParams => Util.FlattenVarList(_inParams);
-  
+
   public List<Variable> OutParams => Util.FlattenVarList(_outParams);
 
   public StmtList StructuredStmts => new(_bigBlockList, Token.NoToken);
-  
+
   public Implementation Implementation { get; }
 
   private MinorizeVisitor _minorizer;
   private IdentifierTypeVisitor _typeVisitor;
   private int _anon = 0;
 
-  public ImplementationMpp(Implementation implementation)
+  public ImplementationMpp(Implementation implementation, Dictionary<string, (Variable, Variable)> globalVariableDict)
   {
-    _localVariables = Util.DuplicateVariables(implementation.LocVars);
-    _inParams = Util.CalculateInParams(implementation.InParams);
-    _outParams = Util.DuplicateVariables(implementation.OutParams);
-    
-    _minorizer = new MinorizeVisitor(_inParams.Concat(_outParams).Concat(_localVariables).ToDictionary(t => t.Item1.Name, t => t));
+    var minorizer = new MinorizeVisitor(globalVariableDict);
+    _localVariables = Util.DuplicateVariables(implementation.LocVars, minorizer);
+    _inParams = Util.CalculateInParams(implementation.InParams, minorizer);
+    _outParams = Util.DuplicateVariables(implementation.OutParams, minorizer);
+
+    _minorizer = minorizer.AddTemporaryVariables(_inParams.Concat(_outParams).Concat(_localVariables)
+      .ToList());
     _typeVisitor = new IdentifierTypeVisitor(implementation.InParams.Concat(implementation.LocVars).ToList());
 
-    _bigBlockList = CalculateStructuredStmts(implementation.StructuredStmts, new IdentifierExpr(Token.NoToken, Util.MajorP),
+    _bigBlockList = CalculateStructuredStmts(implementation.StructuredStmts,
+      new IdentifierExpr(Token.NoToken, Util.MajorP),
       new IdentifierExpr(Token.NoToken, Util.MinorP));
 
     Implementation = new Implementation(
@@ -53,11 +56,6 @@ public class ImplementationMpp
       Util.FlattenVarList(_outParams),
       Util.FlattenVarList(_localVariables),
       new StmtList(_bigBlockList, Token.NoToken));
-
-    // implementation.LocVars = Util.FlattenVarList(_localVariables);
-    // implementation.InParams = Util.FlattenVarList(_inParams);
-    // implementation.OutParams = Util.FlattenVarList(_outParams);
-    // implementation.StructuredStmts = new StmtList(_bigBlockList, Token.NoToken);
   }
 
   public List<BigBlock> CalculateStructuredStmts(StmtList structuredStmts, Expr majorContext, Expr minorContext)
@@ -68,6 +66,7 @@ public class ImplementationMpp
     }
 
     var newBlocks = new List<BigBlock>();
+
     foreach (var bb in structuredStmts.BigBlocks)
     {
       newBlocks.AddRange(UpdateBlocks(bb, majorContext, minorContext));
@@ -88,18 +87,43 @@ public class ImplementationMpp
       }
       else if (bb.ec is WhileCmd whileCmd)
       {
-        whileCmd.Invariants.ForEach(x =>
-        {
-          x.Expr = Util.SolveExpr(x.Expr, majorContext, minorContext, _minorizer);
-        });
+        var termVar = new LocalVariable(Token.NoToken, new TypedIdent(Token.NoToken, "term" + FreshAnon(), Type.Bool));
 
-        var majorWhileGuard = Expr.And(majorContext, whileCmd.Guard);
-        var minorWhileGuard = Expr.And(minorContext, _minorizer.VisitExpr(whileCmd.Guard));
+        AddLocalVars(new List<Variable> { termVar });
+        var termIdentExpr = new IdentifierExpr(Token.NoToken, termVar);
+        whileCmd.TerminationExpr = termIdentExpr;
+
+        var majorTermAssignment = AssignTermVariable(termIdentExpr, true);
+        var minorTermAssignment =
+          AssignTermVariable(
+            (IdentifierExpr)_minorizer.VisitIdentifierExpr(termIdentExpr),
+            true);
+        var termBlocks = CreateNewIfBigBlockPair(majorTermAssignment, minorTermAssignment, majorContext, minorContext);
+        newBlocks.AddRange(termBlocks);
+
+        whileCmd.Invariants.ForEach(x => { x.Expr = Util.SolveExpr(x.Expr, majorContext, minorContext, _minorizer); });
+
+        var majorWhileGuard = Expr.And(new List<Expr> { majorContext, whileCmd.Guard, termIdentExpr });
+        var minorWhileGuard = Expr.And(new List<Expr>
+          { minorContext, _minorizer.VisitExpr(whileCmd.Guard), _minorizer.VisitExpr(termIdentExpr) });
         whileCmd.Guard = Expr.Or(majorWhileGuard, minorWhileGuard);
         whileCmd.Body = new StmtList(CalculateStructuredStmts(whileCmd.Body, majorWhileGuard, minorWhileGuard),
           whileCmd.Body.EndCurly);
 
         newBlocks.Add(new BigBlock(Token.NoToken, bb.LabelName, new List<Cmd>(), whileCmd, null));
+      }
+      else if (bb.ec is BreakCmd breakCmd)
+      {
+        var outerWhileCmd = (WhileCmd)breakCmd.BreakEnclosure.ec;
+        var majorTerminationExpr = outerWhileCmd.TerminationExpr;
+        var minorTerminationExpr = (IdentifierExpr)_minorizer.VisitIdentifierExpr(majorTerminationExpr);
+        var majorBreak = AssignTermVariable(majorTerminationExpr, false);
+        var minorBreak = AssignTermVariable(minorTerminationExpr, false);
+        var breakInvariant = Expr.Imp(Expr.Not(majorTerminationExpr), RemoveTerminationExpression(majorContext, majorTerminationExpr));
+        outerWhileCmd.Invariants.Add(new AssertCmd(Token.NoToken, Util.SolveExpr(breakInvariant, new IdentifierExpr(Token.NoToken, Util.MajorP),
+          new IdentifierExpr(Token.NoToken, Util.MinorP), _minorizer)));
+        var breakBlocks = CreateNewIfBigBlockPair(majorBreak, minorBreak, majorContext, minorContext);
+        newBlocks.AddRange(breakBlocks);
       }
     }
 
@@ -125,7 +149,8 @@ public class ImplementationMpp
             lhss.Add(minorLhs);
           }
 
-          var minorAssignCmd = new AssignCmd(Token.NoToken, lhss, assignCmd.Rhss.Select(e => _minorizer.VisitExpr(e)).ToList());
+          var minorAssignCmd = new AssignCmd(Token.NoToken, lhss,
+            assignCmd.Rhss.Select(e => _minorizer.VisitExpr(e)).ToList());
 
           updatedBlocks.AddRange(CreateNewIfBigBlockPair(assignCmd, minorAssignCmd, majorContext, minorContext));
           break;
@@ -140,7 +165,7 @@ public class ImplementationMpp
           };
 
 
-          updatedBlocks.Add(new BigBlock(Token.NoToken, c.ToString().TrimEnd() + FreshAnon(), new List<Cmd> { solvedCmd },
+          updatedBlocks.Add(new BigBlock(Token.NoToken, null, new List<Cmd> { solvedCmd },
             null, null));
           break;
         }
@@ -155,20 +180,24 @@ public class ImplementationMpp
             return new LocalVariable(Token.NoToken, typedIdent);
           }).ToList().ConvertAll(v => (Variable)v);
           var dupTempInVars = AddLocalVars(tempInVars);
-        
-          var majorInTempLhss = dupTempInVars.Select(x => (AssignLhs)new SimpleAssignLhs(x.Item1.tok, Expr.Ident(x.Item1))).ToList();
+
+          var majorInTempLhss = dupTempInVars
+            .Select(x => (AssignLhs)new SimpleAssignLhs(x.Item1.tok, Expr.Ident(x.Item1))).ToList();
           var majorInExprs = callCmd.Ins;
           var majorInAssignCmd = new AssignCmd(Token.NoToken, majorInTempLhss, majorInExprs);
-        
-          var minorInTempLhss = dupTempInVars.Select(x => (AssignLhs)new SimpleAssignLhs(x.Item2.tok, Expr.Ident(x.Item2))).ToList();
+
+          var minorInTempLhss = dupTempInVars
+            .Select(x => (AssignLhs)new SimpleAssignLhs(x.Item2.tok, Expr.Ident(x.Item2))).ToList();
           var minorInExprs = callCmd.Ins.Select(_minorizer.VisitExpr).ToList();
           var minorInAssignCmd = new AssignCmd(Token.NoToken, minorInTempLhss, minorInExprs);
-        
-          var tempInAssignmentBBs = CreateNewIfBigBlockPair(majorInAssignCmd, minorInAssignCmd, majorContext, minorContext);
+
+          var tempInAssignmentBBs =
+            CreateNewIfBigBlockPair(majorInAssignCmd, minorInAssignCmd, majorContext, minorContext);
 
           var tempOutVars = callCmd.Outs.Select(e =>
           {
-            var typedIdent = new TypedIdent(Token.NoToken, e.Name + "_temp_out" + FreshAnon(), GetTypeFromVarName(e.Name));
+            var typedIdent = new TypedIdent(Token.NoToken, e.Name + "_temp_out" + FreshAnon(),
+              GetTypeFromVarName(e.Name));
             return new LocalVariable(Token.NoToken, typedIdent);
           }).ToList().ConvertAll(v => (Variable)v);
           var dupTempOutVars = AddLocalVars(tempOutVars);
@@ -176,17 +205,18 @@ public class ImplementationMpp
           var majorOutTempExprs = dupTempOutVars.Select(x => (Expr)Expr.Ident(x.Item1)).ToList();
           var majorOutLhss = callCmd.Outs.Select(e => (AssignLhs)new SimpleAssignLhs(e.tok, e)).ToList();
           var majorOutAssignCmd = new AssignCmd(Token.NoToken, majorOutLhss, majorOutTempExprs);
-        
+
           var minorOutTempExprs = dupTempOutVars.Select(x => (Expr)Expr.Ident(x.Item2)).ToList();
           var minorOutLhss = callCmd.Outs
-            .Select(e => 
+            .Select(e =>
               (AssignLhs)new SimpleAssignLhs(e.tok, (IdentifierExpr)_minorizer.VisitIdentifierExpr(e))
             )
             .ToList();
           var minorOutAssignCmd = new AssignCmd(Token.NoToken, minorOutLhss, minorOutTempExprs);
 
-          var tempOutAssignmentBBs = CreateNewIfBigBlockPair(majorOutAssignCmd, minorOutAssignCmd, majorContext, minorContext);
-        
+          var tempOutAssignmentBBs =
+            CreateNewIfBigBlockPair(majorOutAssignCmd, minorOutAssignCmd, majorContext, minorContext);
+
           callCmd.Outs = Util.FlattenVarList(dupTempOutVars).Select(Expr.Ident).ToList();
           callCmd.Ins = Util.FlattenVarList(dupTempInVars)
             .Select(Expr.Ident)
@@ -194,9 +224,9 @@ public class ImplementationMpp
             .Prepend(majorContext)
             .ToList();
           var callBB = new BigBlock(
-            Token.NoToken, 
-            callCmd.ToString().TrimEnd(), 
-            new List<Cmd> { callCmd }, 
+            Token.NoToken,
+            null,
+            new List<Cmd> { callCmd },
             null, null);
 
           var allBBs = new List<BigBlock>();
@@ -204,15 +234,16 @@ public class ImplementationMpp
           allBBs.Add(callBB);
           allBBs.AddRange(tempOutAssignmentBBs);
           var ifAnyContext = new IfCmd(
-            Token.NoToken, 
-            Expr.Or(majorContext, minorContext), 
-            new StmtList(allBBs, Token.NoToken), 
+            Token.NoToken,
+            Expr.Or(majorContext, minorContext),
+            new StmtList(allBBs, Token.NoToken),
             null, null);
 
-          var newBB = new BigBlock(Token.NoToken, "call" + FreshAnon(), new List<Cmd>(), ifAnyContext, null);
+          var newBB = new BigBlock(Token.NoToken, null, new List<Cmd>(), ifAnyContext, null);
           updatedBlocks.Add(newBB);
           break;
         }
+        case CommentCmd: break;
         default:
           updatedBlocks.AddRange(CreateNewIfBigBlockPair(c, (Cmd)_minorizer.Visit(c.Clone()), majorContext,
             minorContext));
@@ -223,10 +254,11 @@ public class ImplementationMpp
     return updatedBlocks;
   }
 
-  private IEnumerable<BigBlock> CreateNewIfBigBlockPair(Cmd majorCmd, Cmd minorCmd, Expr majorContext, Expr minorContext)
+  private IEnumerable<BigBlock> CreateNewIfBigBlockPair(Cmd majorCmd, Cmd minorCmd, Expr majorContext,
+    Expr minorContext)
   {
     var majorInternalBlock = new BigBlock(
-      Token.NoToken, Util.MajorPrefix + majorCmd.ToString().TrimEnd() + "_Then" + FreshAnon(),
+      Token.NoToken, null,
       new List<Cmd>() { majorCmd },
       null,
       null
@@ -239,14 +271,14 @@ public class ImplementationMpp
       null
     );
     var majorBlock = new BigBlock(
-      Token.NoToken, Util.MajorPrefix + majorCmd.ToString().TrimEnd() + FreshAnon(),
+      Token.NoToken, null,
       new List<Cmd>(),
       majorIf,
       null
     );
 
     var minorInternalBlock = new BigBlock(
-      Token.NoToken, Util.MinorPrefix + majorCmd.ToString().TrimEnd() + "_Then" + FreshAnon(),
+      Token.NoToken, null,
       new List<Cmd>() { minorCmd },
       null,
       null
@@ -259,7 +291,7 @@ public class ImplementationMpp
       null
     );
     var minorBlock = new BigBlock(
-      Token.NoToken, Util.MinorPrefix + majorCmd.ToString().TrimEnd() + FreshAnon(),
+      Token.NoToken, null,
       new List<Cmd>(),
       minorIf,
       null
@@ -275,7 +307,8 @@ public class ImplementationMpp
 
   private List<(Variable, Variable)> AddLocalVars(List<Variable> variables)
   {
-    var duplicatedVars = Util.DuplicateVariables(variables);
+    var duplicatedVars = Util.DuplicateVariables(variables, _minorizer);
+    _minorizer = _minorizer.AddTemporaryVariables(duplicatedVars);
     _localVariables.AddRange(duplicatedVars);
     return duplicatedVars;
   }
@@ -283,5 +316,34 @@ public class ImplementationMpp
   private Type GetTypeFromVarName(String name)
   {
     return _localVariables.Select(x => x.Item1).First(x => x.Name.Equals(name)).TypedIdent.Type;
+  }
+
+  private AssignCmd AssignTermVariable(IdentifierExpr expr, bool value)
+  {
+    return new AssignCmd(
+      Token.NoToken,
+      new List<AssignLhs> { new SimpleAssignLhs(Token.NoToken, expr) },
+      new List<Expr> { value ? Expr.True : Expr.False }
+    );
+  }
+
+  private Expr RemoveTerminationExpression(Expr expr, IdentifierExpr terminationExpr)
+  {
+    if (expr is NAryExpr e && e.Fun.FunctionName == "&&")
+    {
+      if (e.Args[0] is IdentifierExpr idExpr1 && idExpr1.Name == terminationExpr.Name)
+      {
+        return e.Args[1];
+      }
+      
+      if (e.Args[1] is IdentifierExpr idExpr2 && idExpr2.Name == terminationExpr.Name)
+      {
+        return e.Args[0];
+      }
+
+      return Expr.And(RemoveTerminationExpression(e.Args[0], terminationExpr),
+        RemoveTerminationExpression(e.Args[1], terminationExpr));
+    }
+    return expr;
   }
 }

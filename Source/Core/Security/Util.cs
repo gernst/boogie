@@ -13,7 +13,7 @@ public static class Util
   public static readonly Formal MajorP = new Formal(Token.NoToken, new TypedIdent(Token.NoToken, "major_p", Type.Bool), true);
   public static readonly Formal MinorP = new Formal(Token.NoToken, new TypedIdent(Token.NoToken, "minor_p", Type.Bool), true);
 
-  public static List<(Variable, Variable)> DuplicateVariables(List<Variable> localVariables)
+  public static List<(Variable, Variable)> DuplicateVariables(List<Variable> localVariables, MinorizeVisitor minorizer)
   {
     var duplicatedVariables = new List<(Variable, Variable)>();
     foreach (var v in localVariables)
@@ -49,8 +49,12 @@ public static class Util
           break;
       }
 
+      if (v.TypedIdent.WhereExpr != null)
+      {
+        newVar.TypedIdent.WhereExpr = minorizer.AddTemporaryVariables(new List<(Variable, Variable)> { (v, newVar) })
+          .VisitExpr(v.TypedIdent.WhereExpr);
+      }
       
-
       duplicatedVariables.Add((v, newVar));
     }
 
@@ -69,9 +73,9 @@ public static class Util
     minorVars = variables.Where((item, index) => index % 2 != 0).ToList();
   }
 
-  public static List<(Variable, Variable)> CalculateInParams(List<Variable> inParams)
+  public static List<(Variable, Variable)> CalculateInParams(List<Variable> inParams, MinorizeVisitor minorizer)
   {
-    var duplicatedVariables = Util.DuplicateVariables(inParams);
+    var duplicatedVariables = Util.DuplicateVariables(inParams, minorizer);
     duplicatedVariables.Insert(0, (Util.MajorP, Util.MinorP));
     return duplicatedVariables;
   }
@@ -95,37 +99,23 @@ public static class Util
           return new NAryExpr(n.tok, n.Fun, n.Args.Select((e => SolveExpr(e, majorContext, minorContext, minorizer))).ToList());
         case ExistsExpr e:
         {
-          var duplicatedBounds = Util.DuplicateVariables(e.Dummies);
+          var duplicatedBounds = Util.DuplicateVariables(e.Dummies, minorizer);
           var adaptedMinorizer = minorizer.AddTemporaryVariables(duplicatedBounds);
           return new ExistsExpr(e.tok, Util.FlattenVarList(duplicatedBounds), SolveExpr(e.Body, majorContext, minorContext, adaptedMinorizer));
         }
         case ForallExpr f:
         {
-          var duplicatedBounds = Util.DuplicateVariables(f.Dummies);
+          var duplicatedBounds = Util.DuplicateVariables(f.Dummies, minorizer);
           var adaptedMinorizer = minorizer.AddTemporaryVariables(duplicatedBounds);
-          return new ForallExpr(f.tok, Util.FlattenVarList(duplicatedBounds), SolveExpr(f.Body, majorContext, minorContext, adaptedMinorizer));
+          return new ForallExpr(f.tok, f.TypeParameters, Util.FlattenVarList(duplicatedBounds), SolveExpr(f.Body, majorContext, minorContext, adaptedMinorizer));
         }
         default:
           throw new ArgumentException();
       }
     }
 
-    if (expr is QuantifierExpr q)
-    {
-      var duplicatedBounds = Util.DuplicateVariables(q.Dummies);
-      var adaptedMinorizer = minorizer.AddTemporaryVariables(duplicatedBounds);
-      q.Dummies = Util.FlattenVarList(duplicatedBounds);
-      var majorImp = Expr.Imp(majorContext, q.Body);
-      var minorImp = Expr.Imp(minorContext, adaptedMinorizer.VisitExpr(q.Body));
-
-      q.Body = Expr.And(majorImp, minorImp);
-      return q;
-    }
-    else
-    {
-      var majorImp = Expr.Imp(majorContext, expr);
-      var minorImp = Expr.Imp(minorContext, minorizer.VisitExpr(expr));
-      return Expr.And(majorImp, minorImp);
-    }
+    var majorImp = Expr.Imp(majorContext, expr);
+    var minorImp = Expr.Imp(minorContext, minorizer.VisitExpr(expr));
+    return Expr.And(majorImp, minorImp);
   }
 }

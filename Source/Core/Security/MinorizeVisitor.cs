@@ -2,6 +2,7 @@ using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.Boogie;
+using Util = Core.Security.Util;
 
 namespace Core;
 
@@ -51,22 +52,34 @@ public class MinorizeVisitor : Duplicator
       return new IdentifierExpr(node.tok, variable.Item2);
     }
 
-    return node;
+    throw new cce.UnreachableException();
+
+    // return node;
   }
 
   public override Expr VisitForallExpr(ForallExpr node)
   {
-    return new ForallExpr(node.tok, node.Dummies, this.AddTemporaryVariables(node.Dummies.Select(v => (v, v)).ToList()).VisitExpr(node.Body));
+    var updatedVisitor = this.AddTemporaryVariables(node.Dummies.Select(v => (v, v)).ToList());
+    return new ForallExpr(node.tok, node.TypeParameters, node.Dummies, null, updatedVisitor.VisitTrigger(node.Triggers), updatedVisitor.VisitExpr(node.Body));
   }
 
   public override Expr VisitExistsExpr(ExistsExpr node)
   {
-    return new ExistsExpr(node.tok, node.Dummies, this.AddTemporaryVariables(node.Dummies.Select(v => (v, v)).ToList()).VisitExpr(node.Body));
+    var updatedVisitor = this.AddTemporaryVariables(node.Dummies.Select(v => (v, v)).ToList());
+    return new ExistsExpr(node.tok, node.TypeParameters,node.Dummies, null, updatedVisitor.VisitTrigger(node.Triggers), updatedVisitor.VisitExpr(node.Body));
   }
 
   public override Expr VisitLambdaExpr(LambdaExpr node)
   {
     return new LambdaExpr(node.tok, node.TypeParameters, node.Dummies, node.Attributes,
       this.AddTemporaryVariables(node.Dummies.Select(v => (v, v)).ToList()).VisitExpr(node.Body));
+  }
+
+  public override TypedIdent VisitTypedIdent(TypedIdent node)
+  {
+    return new TypedIdent(node.tok, Util.MinorPrefix + node.Name, node.Type)
+    {
+      WhereExpr = node.WhereExpr != null ? VisitExpr(node.WhereExpr) : null
+    };
   }
 }

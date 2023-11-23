@@ -144,6 +144,7 @@ namespace Microsoft.Boogie
 
       if (Options.SecurityVerify) {
         Security.CalculateMpp(program);
+        PrintBplFile("-", program, false, false, Options.PrettyPrint);
       }
 
       PipelineOutcome outcome = ResolveAndTypecheck(program, bplFileName, out var civlTypeChecker);
