@@ -20,17 +20,14 @@ public  static class ProcedureMpp
       var minorModifies = new IdentifierExpr(idExpr.tok, Util.MinorPrefix + idExpr.Name, idExpr.Immutable);
       return new List<IdentifierExpr> { idExpr, minorModifies };
     }).ToList();
-    // var minorizer = new MinorizeVisitor(inParams.Concat(outParams).ToDictionary(t => t.Item1.Name, t => t));
     minorizer = minorizer.AddTemporaryVariables(inParams.Concat(outParams).ToList());
     foreach (var req in proc.Requires)
     {
-      req.Condition = Util.SolveExpr(req.Condition, new IdentifierExpr(Token.NoToken, Util.MajorP),
-        new IdentifierExpr(Token.NoToken, Util.MinorP), minorizer);
+      req.Condition = Util.SolveExpr(req.Condition, minorizer);
     }
     foreach (var ens in proc.Ensures)
     {
-      ens.Condition = Util.SolveExpr(ens.Condition, new IdentifierExpr(Token.NoToken, Util.MajorP),
-        new IdentifierExpr(Token.NoToken, Util.MinorP), minorizer);
+      ens.Condition = Util.SolveExpr(ens.Condition, minorizer);
     }
   }
 }

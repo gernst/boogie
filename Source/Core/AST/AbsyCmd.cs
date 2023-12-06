@@ -1099,8 +1099,6 @@ namespace Microsoft.Boogie
 
     public StmtList Body;
 
-    public IdentifierExpr TerminationExpr;
-
     [ContractInvariantMethod]
     void ObjectInvariant()
     {
