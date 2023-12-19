@@ -60,13 +60,25 @@ public class MinorizeVisitor : Duplicator
   public override Expr VisitForallExpr(ForallExpr node)
   {
     var updatedVisitor = this.AddTemporaryVariables(node.Dummies.Select(v => (v, v)).ToList());
-    return new ForallExpr(node.tok, node.TypeParameters, node.Dummies, null, updatedVisitor.VisitTrigger(node.Triggers), updatedVisitor.VisitExpr(node.Body));
+    return new ForallExpr(
+      node.tok, 
+      node.TypeParameters, 
+      node.Dummies, 
+      null, 
+      node.Triggers != null ? updatedVisitor.VisitTrigger(node.Triggers) : null,
+      updatedVisitor.VisitExpr(node.Body));
   }
 
   public override Expr VisitExistsExpr(ExistsExpr node)
   {
     var updatedVisitor = this.AddTemporaryVariables(node.Dummies.Select(v => (v, v)).ToList());
-    return new ExistsExpr(node.tok, node.TypeParameters,node.Dummies, null, updatedVisitor.VisitTrigger(node.Triggers), updatedVisitor.VisitExpr(node.Body));
+    return new ExistsExpr(
+      node.tok, 
+      node.TypeParameters, 
+      node.Dummies, 
+      null, 
+      node.Triggers != null ? updatedVisitor.VisitTrigger(node.Triggers) : null,
+      updatedVisitor.VisitExpr(node.Body));
   }
 
   public override Expr VisitLambdaExpr(LambdaExpr node)

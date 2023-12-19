@@ -152,7 +152,7 @@ public class ImplementationMpp
 
   private void UpdateIfCmd(IfCmd ifCmd, ICollection<Cmd> simpleCmds)
   {
-    if (!IsIfCmdEmpty(ifCmd))
+    if (!IsIfCmdEmpty(ifCmd) && ifCmd.Guard != null)
     {
       simpleCmds.Add(AssertLow(ifCmd.Guard));
     }
