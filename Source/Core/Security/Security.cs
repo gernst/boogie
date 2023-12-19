@@ -7,8 +7,9 @@ namespace Core.Security;
 public static class Security
 {
 
-  public static void CalculateMpp(Program program)
+  public static void CalculateMpp(Program program, List<string> exclusions = null)
   {
+    exclusions ??= new List<string>();
     var duplicatedMutGlobals = program.GlobalVariables
       .Where(glob => glob.IsMutable)
       .Select(glob =>
@@ -34,13 +35,24 @@ public static class Security
     
     program.AddTopLevelDeclarations(duplicatedMutGlobals.Select(x => x.minorGlob));
     
-    var newImplementations = program.Implementations.Select(i => new ImplementationMpp(i, globalVariableDict).Implementation).ToList(); 
-    program.RemoveTopLevelDeclarations(dec => dec is Implementation);
+    var newImplementations = program.Implementations
+      .Where(i => !IsExcluded(i, exclusions))
+      .Select(i => new ImplementationMpp(i, globalVariableDict).Implementation).ToList(); 
+    program.RemoveTopLevelDeclarations(dec => dec is Implementation && !IsExcluded(dec, exclusions));
     program.AddTopLevelDeclarations(newImplementations);
 
-    foreach (var proc in program.Procedures)
-    {
-      ProcedureMpp.CalculateProcedureMpp(proc, globalVariableDict);
-    }
+    program.Procedures
+      .Where(p => !IsExcluded(p, exclusions))
+      .ForEach(p => ProcedureMpp.CalculateProcedureMpp(p, globalVariableDict));
+
+    var relationalRemover = new RelationalRemover();
+    program.TopLevelDeclarations
+      .Where(d => IsExcluded(d, exclusions))
+      .ForEach(d => relationalRemover.Visit(d));
+  }
+
+  private static bool IsExcluded(Declaration dec, List<string> exclusions)
+  {
+    return dec is NamedDeclaration namedDec && exclusions.Exists(e => namedDec.VerboseName.Contains(e));
   }
 }
