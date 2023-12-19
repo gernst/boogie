@@ -31,9 +31,11 @@ public class ImplementationMpp
 
   private MinorizeVisitor _minorizer;
   private int _anon = 0;
+  private readonly List<string> _exclusions;
 
-  public ImplementationMpp(Implementation implementation, Dictionary<string, (Variable, Variable)> globalVariableDict)
+  public ImplementationMpp(Implementation implementation, Dictionary<string, (Variable, Variable)> globalVariableDict, List<string> exclusions)
   {
+    _exclusions = exclusions;
     var minorizer = new MinorizeVisitor(globalVariableDict);
     _localVariables = Util.DuplicateVariables(implementation.LocVars, minorizer);
     _inParams = Util.CalculateInParams(implementation.InParams, minorizer);
@@ -54,7 +56,7 @@ public class ImplementationMpp
       StructuredStmts);
   }
 
-  public StmtList CalculateStructuredStmts(StmtList structuredStmts)
+  public StmtList CalculateStructuredStmts(StmtList structuredStmts, bool isExcluded = false)
   {
     if (structuredStmts == null)
     {
@@ -68,7 +70,7 @@ public class ImplementationMpp
       bb.simpleCmds = DuplicateSimpleCommands(bb.simpleCmds);
       if (bb.ec is IfCmd originalIfCmd)
       {
-        UpdateIfCmd(originalIfCmd, bb.simpleCmds);
+        UpdateIfCmd(originalIfCmd, bb.simpleCmds, isExcluded);
       }
       else if (bb.ec is WhileCmd whileCmd)
       {
@@ -150,29 +152,20 @@ public class ImplementationMpp
     return duplicatedSimpleCmds;
   }
 
-  private void UpdateIfCmd(IfCmd ifCmd, ICollection<Cmd> simpleCmds)
+  private void UpdateIfCmd(IfCmd ifCmd, ICollection<Cmd> simpleCmds, bool isExcluded = false)
   {
-    if (!IsIfCmdEmpty(ifCmd) && ifCmd.Guard != null)
+    isExcluded = IsExcluded(ifCmd.thn.Labels) || isExcluded;
+    if (ifCmd.Guard != null && !isExcluded)
     {
       simpleCmds.Add(AssertLow(ifCmd.Guard));
     }
 
-    ifCmd.thn = CalculateStructuredStmts(ifCmd.thn);
-    ifCmd.elseBlock = CalculateStructuredStmts(ifCmd.elseBlock);
+    ifCmd.thn = CalculateStructuredStmts(ifCmd.thn, isExcluded);
+    ifCmd.elseBlock = CalculateStructuredStmts(ifCmd.elseBlock, isExcluded);
     if (ifCmd.elseIf != null)
     {
-      UpdateIfCmd(ifCmd.elseIf, simpleCmds);
+      UpdateIfCmd(ifCmd.elseIf, simpleCmds, isExcluded);
     }
-  }
-
-  private bool IsIfCmdEmpty(IfCmd ifCmd)
-  {
-    return IsEmptyStmtList(ifCmd.thn) && IsEmptyStmtList(ifCmd.elseBlock) && ifCmd.elseIf == null;
-  }
-
-  private bool IsEmptyStmtList(StmtList stmtList)
-  {
-    return stmtList?.BigBlocks?.All(bb => bb.simpleCmds.Count == 0 && bb.ec == null && bb.tc == null) ?? true;
   }
 
   private AssertCmd AssertLow(Expr expr)
@@ -196,6 +189,11 @@ public class ImplementationMpp
   private Type GetTypeFromVarName(String name)
   {
     return _localVariables.Select(x => x.Item1).First(x => x.Name.Equals(name)).TypedIdent.Type;
+  }
+
+  private bool IsExcluded(IEnumerable<string> labels)
+  {
+    return _exclusions.Exists(e => labels.ToList().Exists(l => l.Contains(e)));
   }
 
 }

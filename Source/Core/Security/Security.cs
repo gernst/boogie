@@ -37,7 +37,7 @@ public static class Security
     
     var newImplementations = program.Implementations
       .Where(i => !IsExcluded(i, exclusions))
-      .Select(i => new ImplementationMpp(i, globalVariableDict).Implementation).ToList(); 
+      .Select(i => new ImplementationMpp(i, globalVariableDict, exclusions).Implementation).ToList(); 
     program.RemoveTopLevelDeclarations(dec => dec is Implementation && !IsExcluded(dec, exclusions));
     program.AddTopLevelDeclarations(newImplementations);
 
