@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Microsoft.Boogie;
 
 namespace Core;
@@ -11,6 +12,19 @@ public class RelationalChecker : ReadOnlyVisitor
     var checker = new RelationalChecker(program);
     checker.Visit(absy);
     return checker.isRelational;
+  }
+
+
+  public static bool IsRelationalFunction(Function fun)
+  {
+    var result = false;
+    fun.CheckBooleanAttribute("relational", ref result);
+    return result;
+  }
+
+  public static bool IsExcludedRelationalProcedure(Declaration dec, List<string> exclusions)
+  {
+    return dec is NamedDeclaration namedDec && exclusions.Exists(e => namedDec.VerboseName.Contains(e));
   }
 
   private bool isRelational;
