@@ -51,11 +51,16 @@ public static class Util
         newVar.TypedIdent.WhereExpr = minorizer.AddTemporaryVariables(new List<(Variable, Variable)> { (v, newVar) })
           .VisitExpr(v.TypedIdent.WhereExpr);
       }
-      
+
       duplicatedVariables.Add((v, newVar));
     }
 
     return duplicatedVariables;
+  }
+  public static List<A> FlattenLists<A>(List<(A, A)> args)
+  {
+    return args.SelectMany(tuple => new List<A> { tuple.Item1, tuple.Item2 })
+      .ToList();
   }
 
   public static List<Variable> FlattenVarList(List<(Variable, Variable)> varList)
@@ -76,9 +81,9 @@ public static class Util
     return duplicatedVariables;
   }
 
-  public static Expr SolveExpr(Expr expr, MinorizeVisitor minorizer)
+  public static Expr SolveExpr(Program program, Expr expr, MinorizeVisitor minorizer)
   {
-    if (RelationalChecker.IsRelational(expr))
+    if (RelationalChecker.IsRelational(program, expr))
     {
       switch (expr)
       {
@@ -89,22 +94,35 @@ public static class Util
           // {
           //   throw new ArgumentException();
           // }
+          // we just called isRelational, so .Func is guaranteed to be set for FunctionCalls
 
-          return new NAryExpr(n.tok, n.Fun, n.Args.Select((e => SolveExpr(e, minorizer))).ToList());
+          var funCall = n.Fun as FunctionCall;
+          bool relational = false;
+
+          if (funCall != null && funCall.Func.CheckBooleanAttribute("relational", ref relational) && relational)
+          {
+            var minorArgs = minorizer.VisitExprSeq(n.Args);
+            var args = Util.FlattenLists<Expr>(n.Args.Zip(minorArgs).ToList());
+            return new NAryExpr(n.tok, n.Fun, args);
+          }
+          else
+          {
+            return new NAryExpr(n.tok, n.Fun, n.Args.Select((e => SolveExpr(program, e, minorizer))).ToList());
+          }
         case ExistsExpr e:
-        {
-          var duplicatedBounds = Util.DuplicateVariables(e.Dummies, minorizer);
-          var adaptedMinorizer = minorizer.AddTemporaryVariables(duplicatedBounds);
-          return new ExistsExpr(e.tok, Util.FlattenVarList(duplicatedBounds), SolveExpr(e.Body, adaptedMinorizer));
-        }
+          {
+            var duplicatedBounds = Util.DuplicateVariables(e.Dummies, minorizer);
+            var adaptedMinorizer = minorizer.AddTemporaryVariables(duplicatedBounds);
+            return new ExistsExpr(e.tok, Util.FlattenVarList(duplicatedBounds), SolveExpr(program, e.Body, adaptedMinorizer));
+          }
         case ForallExpr f:
-        {
-          var duplicatedBounds = Util.DuplicateVariables(f.Dummies, minorizer);
-          var adaptedMinorizer = minorizer.AddTemporaryVariables(duplicatedBounds);
-          return new ForallExpr(f.tok, f.TypeParameters, Util.FlattenVarList(duplicatedBounds), SolveExpr(f.Body, adaptedMinorizer));
-        }
+          {
+            var duplicatedBounds = Util.DuplicateVariables(f.Dummies, minorizer);
+            var adaptedMinorizer = minorizer.AddTemporaryVariables(duplicatedBounds);
+            return new ForallExpr(f.tok, f.TypeParameters, Util.FlattenVarList(duplicatedBounds), SolveExpr(program, f.Body, adaptedMinorizer));
+          }
         default:
-          throw new ArgumentException();
+          throw new ArgumentException(expr.ToString());
       }
     }
 

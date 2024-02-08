@@ -1,6 +1,8 @@
+using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
+using System.Timers;
 using Microsoft.Boogie;
 using Util = Core.Security.Util;
 
@@ -9,7 +11,6 @@ namespace Core;
 public class MinorizeVisitor : Duplicator
 {
   private readonly Dictionary<string, (Variable, Variable)> _variables;
-
   public MinorizeVisitor(Dictionary<string, (Variable, Variable)> allVariables)
   {
     _variables = allVariables;
@@ -47,8 +48,10 @@ public class MinorizeVisitor : Duplicator
     return new BoundVariable(node.tok, new TypedIdent(node.TypedIdent.tok, "minor_" + node.TypedIdent.Name, node.TypedIdent.Type));
   }
 
-  public override Expr VisitIdentifierExpr(IdentifierExpr node) {
-    if (_variables.TryGetValue(node.Name, out var variable)) {
+  public override Expr VisitIdentifierExpr(IdentifierExpr node)
+  {
+    if (_variables.TryGetValue(node.Name, out var variable))
+    {
       return new IdentifierExpr(node.tok, variable.Item2);
     }
 
@@ -61,10 +64,10 @@ public class MinorizeVisitor : Duplicator
   {
     var updatedVisitor = this.AddTemporaryVariables(node.Dummies.Select(v => (v, v)).ToList());
     return new ForallExpr(
-      node.tok, 
-      node.TypeParameters, 
-      node.Dummies, 
-      null, 
+      node.tok,
+      node.TypeParameters,
+      node.Dummies,
+      null,
       node.Triggers != null ? updatedVisitor.VisitTrigger(node.Triggers) : null,
       updatedVisitor.VisitExpr(node.Body));
   }
@@ -73,10 +76,10 @@ public class MinorizeVisitor : Duplicator
   {
     var updatedVisitor = this.AddTemporaryVariables(node.Dummies.Select(v => (v, v)).ToList());
     return new ExistsExpr(
-      node.tok, 
-      node.TypeParameters, 
-      node.Dummies, 
-      null, 
+      node.tok,
+      node.TypeParameters,
+      node.Dummies,
+      null,
       node.Triggers != null ? updatedVisitor.VisitTrigger(node.Triggers) : null,
       updatedVisitor.VisitExpr(node.Body));
   }
@@ -94,4 +97,53 @@ public class MinorizeVisitor : Duplicator
       WhereExpr = node.WhereExpr != null ? VisitExpr(node.WhereExpr) : null
     };
   }
+
+  // public override Expr VisitNAryExpr(NAryExpr node)
+  // {
+  //   var funCall = node.Fun as FunctionCall;
+
+  //   if (funCall == null)
+  //   {
+  //     return base.VisitNAryExpr(node);
+  // public override Expr VisitNAryExpr(NAryExpr node)
+  // {
+  //   var funCall = node.Fun as FunctionCall;
+
+  //   if (funCall == null)
+  //   {
+  //     return base.VisitNAryExpr(node);
+  //   }
+  //   else
+  //   {
+  //     funCall.Func = _program.FindFunction(funCall.FunctionName);
+  //     bool relational = false;
+  //     funCall.Func.CheckBooleanAttribute("relational", ref relational);
+      
+  //     if (relational)
+  //     {
+  //       return node;
+  //     }
+  //     else
+  //     {
+  //       return base.VisitNAryExpr(node);
+  //     }
+  //   }
+  // }
+  //   }
+  //   else
+  //   {
+  //     funCall.Func = _program.FindFunction(funCall.FunctionName);
+  //     bool relational = false;
+  //     funCall.Func.CheckBooleanAttribute("relational", ref relational);
+      
+  //     if (relational)
+  //     {
+  //       return node;
+  //     }
+  //     else
+  //     {
+  //       return base.VisitNAryExpr(node);
+  //     }
+  //   }
+  // }
 }

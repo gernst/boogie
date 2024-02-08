@@ -37,13 +37,13 @@ public static class Security
     
     var newImplementations = program.Implementations
       .Where(i => !IsExcluded(i, exclusions))
-      .Select(i => new ImplementationMpp(i, globalVariableDict, exclusions).Implementation).ToList(); 
+      .Select(i => new ImplementationMpp(program, i, globalVariableDict, exclusions).Implementation).ToList(); 
     program.RemoveTopLevelDeclarations(dec => dec is Implementation && !IsExcluded(dec, exclusions));
     program.AddTopLevelDeclarations(newImplementations);
 
     program.Procedures
       .Where(p => !IsExcluded(p, exclusions))
-      .ForEach(p => ProcedureMpp.CalculateProcedureMpp(p, globalVariableDict));
+      .ForEach(p => ProcedureMpp.CalculateProcedureMpp(program, p, globalVariableDict));
 
     var relationalRemover = new RelationalRemover();
     program.TopLevelDeclarations

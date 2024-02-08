@@ -32,10 +32,12 @@ public class ImplementationMpp
   private MinorizeVisitor _minorizer;
   private int _anon = 0;
   private readonly List<string> _exclusions;
+  private Program _program;
 
-  public ImplementationMpp(Implementation implementation, Dictionary<string, (Variable, Variable)> globalVariableDict, List<string> exclusions)
+  public ImplementationMpp(Program program, Implementation implementation, Dictionary<string, (Variable, Variable)> globalVariableDict, List<string> exclusions)
   {
     _exclusions = exclusions;
+    _program = program;
     var minorizer = new MinorizeVisitor(globalVariableDict);
     _localVariables = Util.DuplicateVariables(implementation.LocVars, minorizer);
     _inParams = Util.CalculateInParams(implementation.InParams, minorizer);
@@ -75,7 +77,7 @@ public class ImplementationMpp
       else if (bb.ec is WhileCmd whileCmd)
       {
         bb.simpleCmds.Add(AssertLow(whileCmd.Guard));
-        whileCmd.Invariants.ForEach(x => { x.Expr = Util.SolveExpr(x.Expr, _minorizer); });
+        whileCmd.Invariants.ForEach(x => { x.Expr = Util.SolveExpr(_program, x.Expr, _minorizer); });
 
         whileCmd.Body = CalculateStructuredStmts(whileCmd.Body);
 
@@ -122,8 +124,8 @@ public class ImplementationMpp
         {
           Cmd solvedCmd = c switch
           {
-            AssertCmd a => new AssertCmd(a.tok, Util.SolveExpr(a.Expr, _minorizer)),
-            AssumeCmd a => new AssumeCmd(a.tok, Util.SolveExpr(a.Expr, _minorizer)),
+            AssertCmd a => new AssertCmd(a.tok, Util.SolveExpr(_program, a.Expr, _minorizer)),
+            AssumeCmd a => new AssumeCmd(a.tok, Util.SolveExpr(_program, a.Expr, _minorizer)),
             _ => throw new cce.UnreachableException()
           };
 

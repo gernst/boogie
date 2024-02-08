@@ -8,7 +8,7 @@ namespace Core;
 public  static class ProcedureMpp
 {
   
-  public static void CalculateProcedureMpp(Procedure proc, Dictionary<string, (Variable, Variable)> globalVariableDict)
+  public static void CalculateProcedureMpp(Program program, Procedure proc, Dictionary<string, (Variable, Variable)> globalVariableDict)
   {
     var minorizer = new MinorizeVisitor(globalVariableDict);
     var inParams = Util.CalculateInParams(proc.InParams, minorizer);
@@ -23,11 +23,11 @@ public  static class ProcedureMpp
     minorizer = minorizer.AddTemporaryVariables(inParams.Concat(outParams).ToList());
     foreach (var req in proc.Requires)
     {
-      req.Condition = Util.SolveExpr(req.Condition, minorizer);
+      req.Condition = Util.SolveExpr(program, req.Condition, minorizer);
     }
     foreach (var ens in proc.Ensures)
     {
-      ens.Condition = Util.SolveExpr(ens.Condition, minorizer);
+      ens.Condition = Util.SolveExpr(program, ens.Condition, minorizer);
     }
   }
 }
