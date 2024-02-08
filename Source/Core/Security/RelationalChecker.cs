@@ -14,7 +14,6 @@ public class RelationalChecker : ReadOnlyVisitor
     return checker.isRelational;
   }
 
-
   public static bool IsRelationalFunction(Function fun)
   {
     var result = false;

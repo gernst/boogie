@@ -46,6 +46,10 @@ public static class Security
       .Where(f => RelationalChecker.IsRelationalFunction(f))
       .ForEach(f => FunctionMpp.CalculateFunctionMpp(program, f));
 
+    program.Axioms
+      .Where(a => RelationalChecker.IsRelational(program, a))
+      .ForEach( a => AxiomMpp.CalculateAxiomMpp(program, a));
+      
     program.Procedures
       .Where(p => !RelationalChecker.IsExcludedRelationalProcedure(p, exclusions))
       .ForEach(p => ProcedureMpp.CalculateProcedureMpp(program, p, globalVariableDict));
