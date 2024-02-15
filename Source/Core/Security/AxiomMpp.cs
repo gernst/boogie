@@ -16,9 +16,9 @@ namespace Core;
 
 public class AxiomMpp
 {
-  public static void CalculateAxiomMpp(Program program, Axiom axiom)
+  public static void CalculateAxiomMpp(Program program, Axiom axiom, Dictionary<string, (Variable, Variable)> globalVariableDict)
   {
-    var minorizer = new MinorizeVisitor(new Dictionary<string, (Variable, Variable)>());
+    var minorizer = new MinorizeVisitor(globalVariableDict);
     axiom.Expr = Util.SolveExpr(program, axiom.Expr, minorizer);
   }
 }
