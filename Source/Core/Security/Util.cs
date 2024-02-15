@@ -113,13 +113,21 @@ public static class Util
           {
             var duplicatedBounds = Util.DuplicateVariables(e.Dummies, minorizer);
             var adaptedMinorizer = minorizer.AddTemporaryVariables(duplicatedBounds);
-            return new ExistsExpr(e.tok, Util.FlattenVarList(duplicatedBounds), SolveExpr(program, e.Body, adaptedMinorizer));
+            return new ExistsExpr(
+              e.tok,
+              Util.FlattenVarList(duplicatedBounds),
+              SolveTrigger(e.Triggers, program, adaptedMinorizer),
+              SolveExpr(program, e.Body, adaptedMinorizer));
           }
         case ForallExpr f:
           {
             var duplicatedBounds = Util.DuplicateVariables(f.Dummies, minorizer);
             var adaptedMinorizer = minorizer.AddTemporaryVariables(duplicatedBounds);
-            return new ForallExpr(f.tok, f.TypeParameters, Util.FlattenVarList(duplicatedBounds), SolveExpr(program, f.Body, adaptedMinorizer));
+            return new ForallExpr(
+              f.tok, 
+              Util.FlattenVarList(duplicatedBounds), 
+              SolveTrigger(f.Triggers, program, adaptedMinorizer),
+              SolveExpr(program, f.Body, adaptedMinorizer));
           }
         default:
           throw new ArgumentException(expr.ToString());
@@ -127,5 +135,28 @@ public static class Util
     }
 
     return Expr.And(expr, minorizer.VisitExpr(expr));
+  }
+
+  private static Trigger SolveTrigger(Trigger trigger, Program program, MinorizeVisitor minorizer)
+  {
+    if (trigger == null)
+    {
+      return null;
+    }
+    
+    Trigger origNext = trigger.Next;
+    Trigger newNext = null;
+
+    if (origNext != null)
+    {
+      newNext = SolveTrigger(origNext, program, minorizer);
+    }
+    
+    return new Trigger(
+      trigger.tok,
+      trigger.Pos,
+      trigger.Tr.Select(tr => SolveExpr(program, tr, minorizer)),
+      newNext
+      );
   }
 }

@@ -1,6 +1,6 @@
-function  {:relational} foo(n: int): bool;
+function {:relational} foo(n: int): bool;
 
-axiom (forall n: int ::
+axiom (forall n: int :: {foo(n)}
     foo(n) == low(n));
 
 procedure test(x: int)
