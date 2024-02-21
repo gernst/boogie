@@ -16,10 +16,11 @@ namespace Core;
 
 public class FunctionMpp
 {
-  public static void CalculateFunctionMpp(Program program, Function function, Dictionary<string, (Variable, Variable)> globalVariableDict)
+  public static Function CalculateFunctionMpp(Program program, Function function, Dictionary<string, (Variable, Variable)> globalVariableDict)
   {
     var minorizer = new MinorizeVisitor(globalVariableDict);
     var inParams = Util.CalculateInParams(function.InParams, minorizer);
-    function.InParams = Util.FlattenVarList(inParams);
+    return new Function(function.tok, function.Name + Util.RelationalSuffix, Util.FlattenVarList(inParams),
+      function.OutParams[0]);
   }
 }

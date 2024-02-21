@@ -9,10 +9,12 @@ namespace Core.Security;
 public static class Util
 {
   public const string MinorPrefix = "minor_";
+  public const string RelationalSuffix = "_relational";
 
   public static List<(Variable, Variable)> DuplicateVariables(List<Variable> localVariables, MinorizeVisitor minorizer)
   {
     var duplicatedVariables = new List<(Variable, Variable)>();
+    var updatedMinorizer = minorizer.AddTemporaryVariables(new List<(Variable, Variable)>());
     foreach (var v in localVariables)
     {
       Variable newVar;
@@ -26,11 +28,9 @@ public static class Util
           };
           break;
         case Formal formal:
+          var newName = formal.Name.Length > 0 ? MinorPrefix + formal.Name : "";
           newVar = new Formal(formal.tok,
-            new TypedIdent(formal.TypedIdent.tok, MinorPrefix + formal.Name, formal.TypedIdent.Type), formal.InComing)
-          {
-            Name = MinorPrefix + formal.Name
-          };
+            new TypedIdent(formal.TypedIdent.tok, newName, formal.TypedIdent.Type), formal.InComing);
           break;
         case BoundVariable:
           newVar = new BoundVariable(v.tok,
@@ -46,9 +46,13 @@ public static class Util
           break;
       }
 
+      if (v.Name.Length > 0) {
+        updatedMinorizer = updatedMinorizer.AddTemporaryVariables(new List<(Variable, Variable)> { (v, newVar) });
+      }
+
       if (v.TypedIdent.WhereExpr != null)
       {
-        newVar.TypedIdent.WhereExpr = minorizer.AddTemporaryVariables(new List<(Variable, Variable)> { (v, newVar) })
+        newVar.TypedIdent.WhereExpr = updatedMinorizer
           .VisitExpr(v.TypedIdent.WhereExpr);
       }
 
@@ -90,20 +94,16 @@ public static class Util
         case LowExpr l:
           return Expr.Eq(l.Expr, minorizer.VisitExpr(l.Expr));
         case NAryExpr n:
-          // if (!n.Type.Equals(Type.Bool))
-          // {
-          //   throw new ArgumentException();
-          // }
           // we just called isRelational, so .Func is guaranteed to be set for FunctionCalls
-
           var funCall = n.Fun as FunctionCall;
           bool relational = false;
 
           if (funCall != null && funCall.Func.CheckBooleanAttribute("relational", ref relational) && relational)
           {
+            var relationalFunction = program.FindFunction(funCall.FunctionName + RelationalSuffix);
             var minorArgs = minorizer.VisitExprSeq(n.Args);
             var args = Util.FlattenLists<Expr>(n.Args.Zip(minorArgs).ToList());
-            return new NAryExpr(n.tok, n.Fun, args);
+            return new NAryExpr(n.tok, new FunctionCall(relationalFunction), args);
           }
           else
           {
@@ -128,6 +128,18 @@ public static class Util
               Util.FlattenVarList(duplicatedBounds), 
               SolveTrigger(f.Triggers, program, adaptedMinorizer),
               SolveExpr(program, f.Body, adaptedMinorizer));
+          }
+        case LetExpr l:
+          {
+            var duplicatedBounds = Util.DuplicateVariables(l.Dummies, minorizer);
+            var adaptedMinorizer = minorizer.AddTemporaryVariables(duplicatedBounds);
+            var minorizedRhss = adaptedMinorizer.VisitExprSeq(l.Rhss);
+            return new LetExpr(
+              l.tok,
+              Util.FlattenVarList(duplicatedBounds),
+              FlattenLists(l.Rhss.Zip(minorizedRhss).ToList()),
+              null,
+              SolveExpr(program, l.Body, adaptedMinorizer));
           }
         default:
           throw new ArgumentException(expr.ToString());

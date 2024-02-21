@@ -35,20 +35,24 @@ public static class Security
 
     program.AddTopLevelDeclarations(duplicatedMutGlobals.Select(x => x.minorGlob));
 
+    var relationalFunctions = program.Functions
+      .Where(f => RelationalChecker.IsRelationalFunction(f))
+      .Select(f => FunctionMpp.CalculateFunctionMpp(program, f, globalVariableDict))
+      .ToList();
+    program.AddTopLevelDeclarations(relationalFunctions);
+
+    var relationalAxioms = program.Axioms
+      .Where(a => RelationalChecker.IsRelational(program, a))
+      .Select(a => AxiomMpp.CalculateAxiomMpp(program, a, globalVariableDict))
+      .ToList();
+    program.AddTopLevelDeclarations(relationalAxioms);
+    
     var newImplementations = program.Implementations
       .Where(i => !RelationalChecker.IsExcludedRelationalProcedure(i, exclusions))
       .Select(i => new ImplementationMpp(program, i, globalVariableDict, exclusions).Implementation).ToList();
 
     program.RemoveTopLevelDeclarations(i => i is Implementation && !RelationalChecker.IsExcludedRelationalProcedure(i, exclusions));
     program.AddTopLevelDeclarations(newImplementations);
-
-    program.Functions
-      .Where(f => RelationalChecker.IsRelationalFunction(f))
-      .ForEach(f => FunctionMpp.CalculateFunctionMpp(program, f, globalVariableDict));
-
-    program.Axioms
-      .Where(a => RelationalChecker.IsRelational(program, a))
-      .ForEach( a => AxiomMpp.CalculateAxiomMpp(program, a, globalVariableDict));
       
     program.Procedures
       .Where(p => !RelationalChecker.IsExcludedRelationalProcedure(p, exclusions))

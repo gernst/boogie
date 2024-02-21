@@ -97,4 +97,15 @@ public class MinorizeVisitor : Duplicator
       WhereExpr = node.WhereExpr != null ? VisitExpr(node.WhereExpr) : null
     };
   }
+
+  public override Expr VisitLetExpr(LetExpr node)
+  {
+    var updatedVisitor = this.AddTemporaryVariables(node.Dummies.Select(v => (v, v)).ToList());
+    return new LetExpr(
+      node.tok,
+      node.Dummies,
+      updatedVisitor.VisitExprSeq(node.Rhss).ToList(),
+      null,
+      updatedVisitor.VisitExpr(node.Body));
+  }
 }
