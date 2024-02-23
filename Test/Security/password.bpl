@@ -1,3 +1,6 @@
+// RUN: %parallel-boogie /securityverify "%s" > "%t"
+// RUN: %diff "%s.expect" "%t"
+
 procedure check_password(input: [int]int, pw: [int]int, n: int) returns (res: bool)
     requires n >= 0;
     requires low(n);

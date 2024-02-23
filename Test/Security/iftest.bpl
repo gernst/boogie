@@ -1,9 +1,11 @@
+// RUN: %parallel-boogie /securityverify "%s" > "%t"
+// RUN: %diff "%s.expect" "%t"
+
 procedure test(x: int)
   requires low(x);
 {
   var y: int;
 
-  assume low(y);
   y := 0;
   assert y == 0;
   if (x == 0) {

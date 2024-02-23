@@ -1,3 +1,6 @@
+// RUN: %parallel-boogie /securityverify "%s" > "%t"
+// RUN: %diff "%s.expect" "%t"
+
 procedure plusone(x: int) returns (y: int)
     ensures y == x+1; 
 {

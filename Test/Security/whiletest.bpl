@@ -1,3 +1,6 @@
+// RUN: %parallel-boogie /securityverify "%s" > "%t"
+// RUN: %diff "%s.expect" "%t"
+
 procedure test(x: int)
   requires x > 0;
   requires low(x);
