@@ -4,6 +4,7 @@ axiom (forall n: int :: {foo(n)}
     foo(n) == low(n));
 
 procedure test(x: int)
+    requires low(x + 2);
 {
     var y: int;
 
