@@ -182,7 +182,6 @@ namespace Microsoft.Boogie
   public class InductiveSequentialization : Sequentialization
   {
     private Action invariantAction;
-    private HashSet<Variable> frame;
     private IdentifierExpr choice;
     private Dictionary<CtorType, Variable> newPAs;
 
@@ -193,7 +192,6 @@ namespace Microsoft.Boogie
       // - the modified set of each of each eliminated and abstract action associated with this invariant.
       // - the target and refined action of every application of inductive sequentialization that refers to this invariant.
       this.invariantAction = invariantAction;
-      frame = new HashSet<Variable>(invariantAction.ModifiedGlobalVars);
       choice = Expr.Ident(invariantAction.ImplWithChoice.OutParams.Last());
       newPAs = invariantAction.PendingAsyncs.ToDictionary(decl => decl.PendingAsyncType,
         decl => (Variable)civlTypeChecker.LocalVariable($"newPAs_{decl.Name}", decl.PendingAsyncMultisetType));
@@ -202,7 +200,7 @@ namespace Microsoft.Boogie
     private List<Declaration> GenerateBaseCaseChecker()
     {
       var requires = invariantAction.Gate.Select(g => new Requires(false, g.Expr)).ToList();
-      
+
       var subst = targetAction.GetSubstitution(invariantAction);
       var cmds = targetAction.GetGateAsserts(subst,
         $"Gate of {targetAction.Name} fails in IS base check against invariant {invariantAction.Name}").ToList<Cmd>();
@@ -215,7 +213,7 @@ namespace Microsoft.Boogie
       outputVars.AddRange(targetAction.PendingAsyncs.Select(action =>
         invariantAction.Impl.OutParams[pendingAsyncTypeToOutputParamIndex[action.PendingAsyncType]]));
       cmds.Add(CmdHelper.CallCmd(targetAction.Impl.Proc, invariantAction.Impl.InParams, outputVars));
-      
+
       // Assign empty multiset to the rest
       var remainderPendingAsyncs = invariantAction.PendingAsyncs.Except(targetAction.PendingAsyncs);
       if (remainderPendingAsyncs.Any())
@@ -228,6 +226,7 @@ namespace Microsoft.Boogie
         cmds.Add(CmdHelper.AssignCmd(lhss, rhss));
       }
 
+      var frame = new HashSet<Variable>(invariantAction.ModifiedGlobalVars);
       cmds.Add(GetCheck(targetAction.tok, invariantAction.GetTransitionRelation(civlTypeChecker, frame),
         $"IS base of {targetAction.Name} failed"));
 
@@ -246,6 +245,7 @@ namespace Microsoft.Boogie
       cmds.Add(CmdHelper.CallCmd(invariantAction.Impl.Proc, invariantAction.Impl.InParams,
         invariantAction.Impl.OutParams));
       cmds.Add(CmdHelper.AssumeCmd(NoPendingAsyncs));
+      var frame = new HashSet<Variable>(refinedAction.ModifiedGlobalVars);
       cmds.Add(GetCheck(targetAction.tok, Substituter.Apply(subst, refinedAction.GetTransitionRelation(civlTypeChecker, frame)),
         $"IS conclusion of {targetAction.Name} failed"));
 
@@ -300,6 +300,7 @@ namespace Microsoft.Boogie
         cmds.Add(new AssignCmd(Token.NoToken, lhss, rhss));
       }
 
+      var frame = new HashSet<Variable>(invariantAction.ModifiedGlobalVars);
       cmds.Add(GetCheck(invariantAction.tok, invariantAction.GetTransitionRelation(civlTypeChecker, frame),
         $"IS step of {invariantAction.Name} with {abs.Name} failed"));
 
@@ -315,7 +316,7 @@ namespace Microsoft.Boogie
      * A key concept used in the generation of this extra assumption is the input-output transition relation of an action.
      * This relation is obtained by taking the conjunction of the gate and transition relation of the action and
      * existentially quantifying globals in the pre and the post state.
-     * 
+     *
      * There are two parts to the assumption, one for leftMover and the other for action.
      * Both parts are stated in the context of the input-output relation of the invariant action.
      * - The invocation of leftMover is identical to the choice made by the invariant.
@@ -350,13 +351,11 @@ namespace Microsoft.Boogie
         return Expr.True;
       }
       var linearTypeChecker = civlTypeChecker.linearTypeChecker;
-      var domainToPermissionExprsForInvariant = linearTypeChecker.PermissionExprs(invariantAction.Impl.InParams);
-      var domainToPermissionExprsForAction = linearTypeChecker.PermissionExprs(actionArgs);
       var disjointnessExpr =
-        Expr.And(domainToPermissionExprsForInvariant.Keys.Intersect(domainToPermissionExprsForAction.Keys).Select(
+        Expr.And(linearTypeChecker.LinearDomains.Select(
           domain =>
             linearTypeChecker.DisjointnessExprForPermissions(domain,
-              domainToPermissionExprsForInvariant[domain].Concat(domainToPermissionExprsForAction[domain]))
+              linearTypeChecker.PermissionExprs(domain, invariantAction.Impl.InParams).Concat(linearTypeChecker.PermissionExprs(domain, actionArgs)))
         ).ToList());
       var pendingAsyncExprs = invariantAction.PendingAsyncs.Select(pendingAsync =>
       {
@@ -366,17 +365,11 @@ namespace Microsoft.Boogie
         var pendingAsyncFormalMap = pendingAsyncActionParams.ToDictionary(v => v,
           v => (Expr)Expr.Ident(civlTypeChecker.BoundVariable($"{pendingAsync.Name}_{v.Name}", v.TypedIdent.Type)));
         var subst = Substituter.SubstitutionFromDictionary(pendingAsyncFormalMap);
-        var domainToPermissionExprsForPendingAsyncAction =
-          linearTypeChecker.PermissionExprs(pendingAsync.InParams).ToDictionary(
-            kv => kv.Key,
-            kv => kv.Value.Select(expr => Substituter.Apply(subst, expr)));
-        var conjuncts = domainToPermissionExprsForAction.Keys.Select(domain =>
+        var conjuncts = linearTypeChecker.LinearDomains.Select(domain =>
         {
-          var lhs = linearTypeChecker.UnionExprForPermissions(domain, domainToPermissionExprsForAction[domain]);
+          var lhs = linearTypeChecker.UnionExprForPermissions(domain, linearTypeChecker.PermissionExprs(domain, actionArgs));
           var rhs = linearTypeChecker.UnionExprForPermissions(domain,
-            domainToPermissionExprsForPendingAsyncAction.ContainsKey(domain)
-              ? domainToPermissionExprsForPendingAsyncAction[domain]
-              : new List<Expr>());
+            linearTypeChecker.PermissionExprs(domain, pendingAsync.InParams).Select(expr => Substituter.Apply(subst, expr)));
           return linearTypeChecker.SubsetExprForPermissions(domain, lhs, rhs);
         });
         var pendingAsyncTransitionRelationExpr = ExprHelper.FunctionCall(pendingAsyncAction.InputOutputRelation,
@@ -427,7 +420,7 @@ namespace Microsoft.Boogie
         inParams,
         outParams,
         requires,
-        frame.Select(Expr.Ident).ToList(),
+        invariantAction.ModifiedGlobalVars.Select(Expr.Ident).ToList(),
         new List<Ensures>());
       var impl = DeclHelper.Implementation(
         proc,
@@ -457,7 +450,7 @@ namespace Microsoft.Boogie
     {
       return ExprHelper.IsConstructor(choice, invariantAction.ChoiceConstructor(pendingAsyncType).Name);
     }
-    
+
     private Expr NoPendingAsyncs
     {
       get
@@ -468,7 +461,7 @@ namespace Microsoft.Boogie
         return expr;
       }
     }
-    
+
     private AssignCmd RemoveChoice(CtorType pendingAsyncType)
     {
       var rhs = Expr.Sub(Expr.Select(PAs(pendingAsyncType), Choice(pendingAsyncType)), Expr.Literal(1));

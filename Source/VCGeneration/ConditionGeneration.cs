@@ -1,7 +1,6 @@
 using System;
 using System.Linq;
 using System.Collections;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
@@ -27,8 +26,8 @@ namespace VC
   [ContractClassFor(typeof(ConditionGeneration))]
   public abstract class ConditionGenerationContracts : ConditionGeneration
   {
-    public override Task<Outcome> VerifyImplementation(ImplementationRun run, VerifierCallback callback,
-      CancellationToken cancellationToken, IObserver<(Split split, VCResult vcResult)> batchCompletedObserver)
+    public override Task<VcOutcome> VerifyImplementation(ImplementationRun run, VerifierCallback callback,
+      CancellationToken cancellationToken)
     {
       Contract.Requires(run != null);
       Contract.Requires(callback != null);
@@ -45,37 +44,25 @@ namespace VC
   [ContractClass(typeof(ConditionGenerationContracts))]
   public abstract class ConditionGeneration : IDisposable
   {
-    public enum Outcome
-    {
-      Correct,
-      Errors,
-      TimedOut,
-      OutOfResource,
-      OutOfMemory,
-      Inconclusive,
-      ReachedBound,
-      SolverException
-    }
-
-    public static Outcome ProverInterfaceOutcomeToConditionGenerationOutcome(ProverInterface.Outcome outcome)
+    public static VcOutcome ProverInterfaceOutcomeToConditionGenerationOutcome(SolverOutcome outcome)
     {
       switch (outcome)
       {
-        case ProverInterface.Outcome.Invalid:
-          return Outcome.Errors;
-        case ProverInterface.Outcome.OutOfMemory:
-          return Outcome.OutOfMemory;
-        case ProverInterface.Outcome.TimeOut:
-          return Outcome.TimedOut;
-        case ProverInterface.Outcome.OutOfResource:
-          return Outcome.OutOfResource;
-        case ProverInterface.Outcome.Undetermined:
-          return Outcome.Inconclusive;
-        case ProverInterface.Outcome.Valid:
-          return Outcome.Correct;
+        case SolverOutcome.Invalid:
+          return VcOutcome.Errors;
+        case SolverOutcome.OutOfMemory:
+          return VcOutcome.OutOfMemory;
+        case SolverOutcome.TimeOut:
+          return VcOutcome.TimedOut;
+        case SolverOutcome.OutOfResource:
+          return VcOutcome.OutOfResource;
+        case SolverOutcome.Undetermined:
+          return VcOutcome.Inconclusive;
+        case SolverOutcome.Valid:
+          return VcOutcome.Correct;
       }
 
-      return Outcome.Inconclusive; // unreachable but the stupid compiler does not understand
+      return VcOutcome.Inconclusive; // unreachable but the stupid compiler does not understand
     }
 
     [ContractInvariantMethod]
@@ -100,8 +87,6 @@ namespace VC
 
     public Dictionary<Incarnation, Absy> incarnationOriginMap = new Dictionary<Incarnation, Absy>();
 
-    public Dictionary<Cmd, List<object>> debugInfos = new Dictionary<Cmd, List<object>>();
-
     public Program program;
     public CheckerPool CheckerPool { get; }
 
@@ -122,9 +107,8 @@ namespace VC
     /// <param name="batchCompletedObserver"></param>
     /// <param name="cancellationToken"></param>
     /// <param name="impl"></param>
-    public async Task<(Outcome, List<Counterexample> errors, List<VCResult> vcResults)> VerifyImplementation(
-      ImplementationRun run, IObserver<(Split split, VCResult vcResult)> batchCompletedObserver,
-      CancellationToken cancellationToken)
+    public async Task<(VcOutcome, List<Counterexample> errors, List<VerificationRunResult> vcResults)> VerifyImplementation2(
+      ImplementationRun run, CancellationToken cancellationToken)
     {
       Contract.Requires(run != null);
 
@@ -132,21 +116,20 @@ namespace VC
       Helpers.ExtraTraceInformation(Options, "Starting implementation verification");
 
       var collector = new VerificationResultCollector(Options);
-      Outcome outcome = await VerifyImplementation(run, collector, cancellationToken, batchCompletedObserver);
+      VcOutcome vcOutcome = await VerifyImplementation(run, collector, cancellationToken);
       var /*?*/ errors = new List<Counterexample>();
-      if (outcome == Outcome.Errors || outcome == Outcome.TimedOut || outcome == Outcome.OutOfMemory ||
-          outcome == Outcome.OutOfResource) {
+      if (vcOutcome is VcOutcome.Errors or VcOutcome.TimedOut or VcOutcome.OutOfMemory or VcOutcome.OutOfResource) {
         errors = collector.examples.ToList();
       }
 
       Helpers.ExtraTraceInformation(Options, "Finished implementation verification");
-      return (outcome, errors, collector.vcResults.ToList());
+      return (vcOutcome, errors, collector.vcResults.ToList());
     }
 
     private VCGenOptions Options => CheckerPool.Options;
 
-    public abstract Task<Outcome> VerifyImplementation(ImplementationRun run, VerifierCallback callback,
-      CancellationToken cancellationToken, IObserver<(Split split, VCResult vcResult)> batchCompletedObserver);
+    public abstract Task<VcOutcome> VerifyImplementation(ImplementationRun run, VerifierCallback callback,
+      CancellationToken cancellationToken);
 
     /////////////////////////////////// Common Methods and Classes //////////////////////////////////////////
 
@@ -525,46 +508,6 @@ namespace VC
     }
 
 
-    public class VerificationResultCollector : VerifierCallback
-    {
-      private readonly VCGenOptions options;
-
-      public VerificationResultCollector(VCGenOptions options) : base(options.PrintProverWarnings)
-      {
-        this.options = options;
-      }
-
-      [ContractInvariantMethod]
-      void ObjectInvariant()
-      {
-        Contract.Invariant(cce.NonNullElements(examples));
-        Contract.Invariant(cce.NonNullElements(vcResults));
-      }
-
-      public readonly ConcurrentQueue<Counterexample> examples = new();
-      public readonly ConcurrentQueue<VCResult> vcResults = new();
-
-      public override void OnCounterexample(Counterexample ce, string /*?*/ reason)
-      {
-        //Contract.Requires(ce != null);
-        ce.InitializeModelStates();
-        examples.Enqueue(ce);
-      }
-
-      public override void OnUnreachableCode(ImplementationRun run)
-      {
-        //Contract.Requires(impl != null);
-        run.OutputWriter.WriteLine("found unreachable code:");
-        EmitImpl(options, run, false);
-        // TODO report error about next to last in seq
-      }
-
-      public override void OnVCResult(VCResult result)
-      {
-        vcResults.Enqueue(result);
-      }
-    }
-
     public static void EmitImpl(VCGenOptions options, ImplementationRun run, bool printDesugarings)
     {
       var impl = run.Implementation;
@@ -827,7 +770,7 @@ namespace VC
         null; // null = the previous command was not an HashCmd. Otherwise, a *copy* of the map before the havoc statement
 
     protected void TurnIntoPassiveBlock(TextWriter traceWriter, Block b, Dictionary<Variable, Expr> incarnationMap, ModelViewInfo mvInfo,
-      Substitution oldFrameSubst, MutableVariableCollector variableCollector, byte[] currentChecksum = null)
+      Substitution oldFrameSubst, MutableVariableCollector variableCollector, Dictionary<Cmd, List<object>> debugInfos, byte[] currentChecksum = null)
     {
       Contract.Requires(b != null);
       Contract.Requires(incarnationMap != null);
@@ -844,7 +787,7 @@ namespace VC
         ChecksumHelper.ComputeChecksums(Options, c, currentImplementation, variableCollector.UsedVariables, currentChecksum);
         variableCollector.Visit(c);
         currentChecksum = c.Checksum;
-        TurnIntoPassiveCmd(traceWriter, c, b, incarnationMap, oldFrameSubst, passiveCmds, mvInfo);
+        TurnIntoPassiveCmd(traceWriter, c, b, incarnationMap, oldFrameSubst, passiveCmds, mvInfo, debugInfos);
       }
 
       b.Checksum = currentChecksum;
@@ -871,7 +814,7 @@ namespace VC
 
       var start = DateTime.UtcNow;
 
-      Dictionary<Variable, Expr> r = ConvertBlocks2PassiveCmd(run.OutputWriter, implementation.Blocks, implementation.Proc.Modifies, mvInfo);
+      Dictionary<Variable, Expr> r = ConvertBlocks2PassiveCmd(run.OutputWriter, implementation.Blocks, implementation.Proc.Modifies, mvInfo, implementation.debugInfos);
 
       var end = DateTime.UtcNow;
 
@@ -908,7 +851,7 @@ namespace VC
     }
 
     protected Dictionary<Variable, Expr> ConvertBlocks2PassiveCmd(TextWriter traceWriter, List<Block> blocks, List<IdentifierExpr> modifies,
-      ModelViewInfo mvInfo)
+      ModelViewInfo mvInfo, Dictionary<Cmd, List<object>> debugInfos)
     {
       Contract.Requires(blocks != null);
       Contract.Requires(modifies != null);
@@ -988,7 +931,7 @@ namespace VC
 
         #endregion Each block's map needs to be available to successor blocks
 
-        TurnIntoPassiveBlock(traceWriter, b, incarnationMap, mvInfo, oldFrameSubst, mvc, currentChecksum);
+        TurnIntoPassiveBlock(traceWriter, b, incarnationMap, mvInfo, oldFrameSubst, mvc, debugInfos, currentChecksum);
         exitBlock = b;
         exitIncarnationMap = incarnationMap;
       }
@@ -1052,7 +995,7 @@ namespace VC
       }
     }
 
-    private void AddDebugInfo(Cmd c, Dictionary<Variable, Expr> incarnationMap, List<Cmd> passiveCmds)
+    private void AddDebugInfo(Cmd c, Dictionary<Variable, Expr> incarnationMap, List<Cmd> passiveCmds, Dictionary<Cmd, List<object>> debugInfos)
     {
       if (c is ICarriesAttributes cmd)
       {
@@ -1100,7 +1043,7 @@ namespace VC
     /// Meanwhile, record any information needed to later reconstruct a model view.
     /// </summary>
     protected void TurnIntoPassiveCmd(TextWriter traceWriter, Cmd c, Block enclosingBlock, Dictionary<Variable, Expr> incarnationMap, Substitution oldFrameSubst,
-      List<Cmd> passiveCmds, ModelViewInfo mvInfo)
+      List<Cmd> passiveCmds, ModelViewInfo mvInfo, Dictionary<Cmd, List<object>> debugInfos)
     {
       Contract.Requires(c != null);
       Contract.Requires(enclosingBlock != null);
@@ -1109,7 +1052,7 @@ namespace VC
       Contract.Requires(passiveCmds != null);
       Contract.Requires(mvInfo != null);
 
-      AddDebugInfo(c, incarnationMap, passiveCmds);
+      AddDebugInfo(c, incarnationMap, passiveCmds, debugInfos);
       Substitution incarnationSubst = Substituter.SubstitutionFromDictionary(incarnationMap);
 
       Microsoft.Boogie.VCExprAST.QuantifierInstantiationEngine.SubstituteIncarnationInInstantiationSources(c, incarnationSubst);
@@ -1148,7 +1091,7 @@ namespace VC
         }
 
         Expr copy = Substituter.ApplyReplacingOldExprs(incarnationSubst, oldFrameSubst, pc.Expr);
-        if (Options.ModelViewFile != null && pc is AssumeCmd captureStateAssumeCmd)
+        if (Options.ExpectingModel && pc is AssumeCmd captureStateAssumeCmd)
         {
           string description = QKeyValue.FindStringAttribute(pc.Attributes, "captureState");
           if (description != null)
@@ -1485,7 +1428,7 @@ namespace VC
       {
         Cmd cmd = sug.GetDesugaring(Options);
         Contract.Assert(cmd != null);
-        TurnIntoPassiveCmd(traceWriter, cmd, enclosingBlock, incarnationMap, oldFrameSubst, passiveCmds, mvInfo);
+        TurnIntoPassiveCmd(traceWriter, cmd, enclosingBlock, incarnationMap, oldFrameSubst, passiveCmds, mvInfo, debugInfos);
       }
       else if (c is StateCmd st)
       {
@@ -1506,7 +1449,7 @@ namespace VC
         foreach (Cmd s in st.Cmds)
         {
           Contract.Assert(s != null);
-          TurnIntoPassiveCmd(traceWriter, s, enclosingBlock, incarnationMap, oldFrameSubst, passiveCmds, mvInfo);
+          TurnIntoPassiveCmd(traceWriter, s, enclosingBlock, incarnationMap, oldFrameSubst, passiveCmds, mvInfo, debugInfos);
         }
 
         // remove the local variables from the incarnation map
@@ -1662,6 +1605,18 @@ namespace VC
         _disposed = true;
       }
     }
+  }
+
+  public enum VcOutcome
+  {
+    Correct,
+    Errors,
+    TimedOut,
+    OutOfResource,
+    OutOfMemory,
+    Inconclusive,
+    ReachedBound,
+    SolverException
   }
 
   public record ImplementationRun(Implementation Implementation, TextWriter OutputWriter) {

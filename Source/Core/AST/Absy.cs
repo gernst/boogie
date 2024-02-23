@@ -302,13 +302,14 @@ namespace Microsoft.Boogie
       }
     }
 
-    public void CopyIdWithSuffixFrom(IToken tok, ICarriesAttributes src, string suffix)
+    public void CopyIdWithModificationsFrom(IToken tok, ICarriesAttributes src, Func<string,TrackedNodeComponent> modifier)
     {
       var id = src.FindStringAttribute("id");
       if (id is not null) {
-        AddStringAttribute(tok, "id", id + suffix);
+        AddStringAttribute(tok, "id", modifier(id).SolverLabel);
       }
     }
+
   }
 
   [ContractClassFor(typeof(Absy))]
@@ -377,8 +378,7 @@ namespace Microsoft.Boogie
         }
         else if (kv.Params.Count == 1)
         {
-          var lit = kv.Params[0] as LiteralExpr;
-          if (lit != null && lit.isBool)
+          if (kv.Params[0] is LiteralExpr { isBool: true } lit)
           {
             result = lit.asBool;
             return true;
@@ -396,7 +396,7 @@ namespace Microsoft.Boogie
     {
       Contract.Requires(name != null);
       QKeyValue res = null;
-      for (QKeyValue kv = this.Attributes; kv != null; kv = kv.Next)
+      for (QKeyValue kv = Attributes; kv != null; kv = kv.Next)
       {
         if (kv.Key == name)
         {
@@ -892,11 +892,10 @@ namespace Microsoft.Boogie
       return true;
     }
 
-    public bool AddConstructor(IToken tok, string name, List<TypedIdent> fields)
+    public bool AddConstructor(IToken tok, string name, List<Variable> fields)
     {
       var returnType = new CtorType(this.tok, this, new List<Type>(this.typeParameters));
-      var function = new Function(tok, name, new List<TypeVariable>(this.typeParameters),
-        fields.Select(field => new Formal(field.tok, field, true)).ToList<Variable>(),
+      var function = new Function(tok, name, new List<TypeVariable>(this.typeParameters), fields,
         new Formal(Token.NoToken, new TypedIdent(Token.NoToken, TypedIdent.NoName, returnType), false));
       var constructor = new DatatypeConstructor(function);
       return AddConstructor(constructor);
@@ -1431,7 +1430,7 @@ namespace Microsoft.Boogie
     // from all other constants.
     public readonly bool Unique;
 
-    public IList<Axiom> DefinitionAxioms { get; }
+    public IList<Axiom> DefinitionAxioms { get; set; }
 
     public Constant(IToken /*!*/ tok, TypedIdent /*!*/ typedIdent)
       : this(tok, typedIdent, true)
@@ -1471,7 +1470,17 @@ namespace Microsoft.Boogie
 
       EmitVitals(stream, level, false);
 
-      stream.WriteLine(";");
+      if (this.DefinitionAxioms.Any())
+      {
+        stream.WriteLine();
+        stream.WriteLine(level,"uses {");
+        this.DefinitionAxioms.ForEach(axiom => axiom.Emit(stream, level));
+        stream.WriteLine("}");
+      }
+      else
+      {
+        stream.WriteLine(";");
+      }
     }
 
     public override void Register(ResolutionContext rc)
@@ -2037,18 +2046,9 @@ namespace Microsoft.Boogie
     public NAryExpr DefinitionBody; // Only set if the function is declared with {:define}
     public Axiom DefinitionAxiom;
 
-    public IList<Axiom> otherDefinitionAxioms = new List<Axiom>();
+    public IList<Axiom> OtherDefinitionAxioms = new List<Axiom>();
     public IEnumerable<Axiom> DefinitionAxioms => 
-      (DefinitionAxiom == null ? Enumerable.Empty<Axiom>() : new[]{ DefinitionAxiom }).Concat(otherDefinitionAxioms);
-
-    public IEnumerable<Axiom> OtherDefinitionAxioms => otherDefinitionAxioms;
-
-    public void AddOtherDefinitionAxiom(Axiom axiom)
-    {
-      Contract.Requires(axiom != null);
-
-      otherDefinitionAxioms.Add(axiom);
-    }
+      (DefinitionAxiom == null ? Enumerable.Empty<Axiom>() : new[]{ DefinitionAxiom }).Concat(OtherDefinitionAxioms);
 
     private bool neverTrigger;
     private bool neverTriggerComputed;
@@ -2169,9 +2169,16 @@ namespace Microsoft.Boogie
         stream.WriteLine();
         stream.WriteLine("}");
       }
-      else
+      else if (!this.DefinitionAxioms.Any())
       {
         stream.WriteLine(";");
+      }
+      if (this.DefinitionAxioms.Any())
+      {
+        stream.WriteLine();
+        stream.WriteLine("uses {");
+        this.DefinitionAxioms.ForEach(axiom => axiom.Emit(stream, level));
+        stream.WriteLine("}");
       }
     }
 
@@ -2473,7 +2480,7 @@ namespace Microsoft.Boogie
 
     public override void Typecheck(TypecheckingContext tc)
     {
-      tc.ExpectedLayerRange = Layers == null || Layers.Count == 0 ? null : new LayerRange(Layers[0], Layers[^1]);
+      tc.ExpectedLayerRange = Layers?.Count > 0 ? new LayerRange(Layers[0], Layers[^1]) : null;
       this.Condition.Typecheck(tc);
       tc.ExpectedLayerRange = null;
       Contract.Assert(this.Condition.Type != null); // follows from postcondition of Expr.Typecheck
@@ -2597,7 +2604,7 @@ namespace Microsoft.Boogie
 
     public override void Typecheck(TypecheckingContext tc)
     {
-      tc.ExpectedLayerRange = Layers == null || Layers.Count == 0 ? null : new LayerRange(Layers[0], Layers[^1]);
+      tc.ExpectedLayerRange = Layers?.Count > 0 ?new LayerRange(Layers[0], Layers[^1]) : null;
       this.Condition.Typecheck(tc);
       tc.ExpectedLayerRange = null;
       Contract.Assert(this.Condition.Type != null); // follows from postcondition of Expr.Typecheck
@@ -2698,7 +2705,7 @@ namespace Microsoft.Boogie
       {
         if (IsPure)
         {
-          rc.Error(this, "unnecessary modifies clause for pure procedure");
+          rc.Error(this, "unnecessary modifies clause for pure {0}", this is ActionDecl ? "action" : "procedure");
         }
         else
         {
@@ -2921,12 +2928,12 @@ namespace Microsoft.Boogie
     public LayerRange LayerRange; // set during registration
 
     public ActionDecl(IToken tok, string name, MoverType moverType,
-      List<Variable> inParams, List<Variable> outParams,
+      List<Variable> inParams, List<Variable> outParams, bool isPure,
       List<ActionDeclRef> creates, ActionDeclRef refinedAction, ActionDeclRef invariantAction,
       List<ElimDecl> eliminates,
       List<IdentifierExpr> modifies, DatatypeTypeCtorDecl pendingAsyncCtorDecl, QKeyValue kv) : base(tok, name,
       new List<TypeVariable>(), inParams, outParams,
-      false, new List<Requires>(), modifies, new List<Ensures>(), kv)
+      isPure, new List<Requires>(), modifies, new List<Ensures>(), kv)
     {
       this.MoverType = moverType;
       this.Creates = creates;
@@ -2949,7 +2956,11 @@ namespace Microsoft.Boogie
       rc.Proc = null;
       if (Creates.Any())
       {
-        if (MoverType == MoverType.Right || MoverType == MoverType.Both)
+        if (IsPure)
+        {
+          rc.Error(this, "unnecessary creates clause for pure action");
+        }
+        else if (MoverType == MoverType.Right || MoverType == MoverType.Both)
         {
           rc.Error(this, "right mover may not create pending asyncs");
         }
@@ -3084,24 +3095,31 @@ namespace Microsoft.Boogie
 
     protected override void EmitBegin(TokenTextWriter stream, int level)
     {
+      if (IsPure)
+      {
+        stream.Write(this, level, "pure ");
+      }
       if (MaybePendingAsync)
       {
         stream.Write(level, "async ");
       }
-      switch (MoverType)
+      if (!IsPure)
       {
-        case MoverType.Atomic:
-          stream.Write(level, ">-<");
-          break;
-        case MoverType.Both:
-          stream.Write(level, "<->");
-          break;
-        case MoverType.Left:
-          stream.Write(level, "<-");
-          break;
-        case MoverType.Right:
-          stream.Write(level, "->");
-          break;
+        switch (MoverType)
+        {
+          case MoverType.Atomic:
+            stream.Write(level, "atomic");
+            break;
+          case MoverType.Both:
+            stream.Write(level, "both");
+            break;
+          case MoverType.Left:
+            stream.Write(level, "left");
+            break;
+          case MoverType.Right:
+            stream.Write(level, "right");
+            break;
+        }
       }
       stream.Write(level, " action ");
     }
@@ -3255,10 +3273,9 @@ namespace Microsoft.Boogie
 
     public override void Resolve(ResolutionContext rc)
     {
-      base.Resolve(rc);
-
-      var oldStateMode = rc.StateMode;
       rc.Proc = this;
+      base.Resolve(rc);
+      var oldStateMode = rc.StateMode;
       rc.StateMode = ResolutionContext.State.Two;
       rc.PushVarContext();
       RegisterFormals(InParams, rc);
@@ -3503,6 +3520,9 @@ namespace Microsoft.Boogie
     // Both are used only when /inline is set.
     public List<Block> OriginalBlocks;
     public List<Variable> OriginalLocVars;
+    
+    // Map filled in during passification to allow augmented error trace reporting
+    public Dictionary<Cmd, List<object>> debugInfos = new();
 
     public readonly ISet<byte[]> AssertionChecksums = new HashSet<byte[]>(ChecksumComparer.Default);
 
@@ -3661,6 +3681,22 @@ namespace Microsoft.Boogie
 
         return priority;
       }
+    }
+
+    public Dictionary<string, string> GetExtraSMTOptions()
+    {
+      Dictionary<string, string> extraSMTOpts = new();
+      for (var a = Attributes; a != null; a = a.Next) {
+        var n = a.Params.Count;
+        var k = a.Key;
+        if (k.Equals("smt_option")) {
+          if (n == 2 && a.Params[0] is string s) {
+            extraSMTOpts.Add(s, a.Params[1].ToString());
+          }
+        }
+      }
+
+      return extraSMTOpts;
     }
 
     public IDictionary<byte[], object> ErrorChecksumToCachedError { get; private set; }

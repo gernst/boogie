@@ -82,18 +82,13 @@ namespace Microsoft.Boogie
       {
         moverChecking.CreateCooperationChecker(action);
       }
-
-      foreach (var action in civlTypeChecker.LinkActions)
-      {
-        moverChecking.CreateCooperationChecker(action);
-      }
     }
 
     private IEnumerable<Requires> DisjointnessAndWellFormedRequires(IEnumerable<Variable> paramVars, HashSet<Variable> frame)
     {
       var availableVars = paramVars.Union(frame);
       return civlTypeChecker.linearTypeChecker.DisjointnessExprForEachDomain(availableVars)
-        .Union(civlTypeChecker.linearTypeChecker.LheapWellFormedExpressions(availableVars))
+        .Union(civlTypeChecker.linearTypeChecker.MapWellFormedExpressions(availableVars))
         .Select(expr => new Requires(false, expr));
     }
 
@@ -156,7 +151,7 @@ namespace Microsoft.Boogie
       List<Requires> requires =
         DisjointnessAndWellFormedRequires(
           first.FirstImpl.InParams.Union(second.SecondImpl.InParams)
-            .Where(v => LinearDomainCollector.FindLinearKind(v) != LinearKind.LINEAR_OUT), frame).ToList();
+            .Where(v => LinearTypeChecker.FindLinearKind(v) != LinearKind.LINEAR_OUT), frame).ToList();
       foreach (AssertCmd assertCmd in first.FirstGate.Union(second.SecondGate))
       {
         requires.Add(new Requires(false, assertCmd.Expr));
@@ -169,7 +164,7 @@ namespace Microsoft.Boogie
       var transitionRelation = TransitionRelationComputation.Commutativity(civlTypeChecker, second, first, frame);
 
       var secondInParamsFiltered =
-        second.SecondImpl.InParams.Where(v => LinearDomainCollector.FindLinearKind(v) != LinearKind.LINEAR_IN);
+        second.SecondImpl.InParams.Where(v => LinearTypeChecker.FindLinearKind(v) != LinearKind.LINEAR_IN);
       IEnumerable<Expr> linearityAssumes = linearTypeChecker.DisjointnessExprForEachDomain(first.FirstImpl.OutParams.Union(secondInParamsFiltered)
         .Union(frame)).Union(linearTypeChecker.DisjointnessExprForEachDomain(first.FirstImpl.OutParams.Union(second.SecondImpl.OutParams)
           .Union(frame)));
@@ -213,7 +208,7 @@ namespace Microsoft.Boogie
       List<Requires> requires = 
         DisjointnessAndWellFormedRequires(
           first.FirstImpl.InParams.Union(second.SecondImpl.InParams)
-            .Where(v => LinearDomainCollector.FindLinearKind(v) != LinearKind.LINEAR_OUT), frame).ToList();
+            .Where(v => LinearTypeChecker.FindLinearKind(v) != LinearKind.LINEAR_OUT), frame).ToList();
       foreach (AssertCmd assertCmd in first.FirstGate.Union(second.SecondGate))
       {
         requires.Add(new Requires(false, assertCmd.Expr));
@@ -268,7 +263,7 @@ namespace Microsoft.Boogie
       List<Requires> requires = 
         DisjointnessAndWellFormedRequires(
           first.FirstImpl.InParams.Union(second.SecondImpl.InParams)
-            .Where(v => LinearDomainCollector.FindLinearKind(v) != LinearKind.LINEAR_OUT), frame).ToList();
+            .Where(v => LinearTypeChecker.FindLinearKind(v) != LinearKind.LINEAR_OUT), frame).ToList();
       Expr firstNegatedGate = Expr.Not(Expr.And(first.FirstGate.Select(a => a.Expr)));
       firstNegatedGate.Type = Type.Bool; // necessary?
       requires.Add(new Requires(false, firstNegatedGate));
@@ -317,7 +312,7 @@ namespace Microsoft.Boogie
       frame.UnionWith(action.UsedGlobalVarsInAction);
 
       List<Requires> requires =
-        DisjointnessAndWellFormedRequires(impl.InParams.Where(v => LinearDomainCollector.FindLinearKind(v) != LinearKind.LINEAR_OUT),
+        DisjointnessAndWellFormedRequires(impl.InParams.Where(v => LinearTypeChecker.FindLinearKind(v) != LinearKind.LINEAR_OUT),
           frame).ToList();
       foreach (AssertCmd assertCmd in action.Gate)
       {
