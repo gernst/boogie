@@ -23,6 +23,8 @@ using System;
 using System.Diagnostics.Contracts;
 using System.Reflection;
 
+namespace Microsoft.Boogie {
+
 
 
 public class Parser {
@@ -2906,3 +2908,4 @@ public class FatalError: Exception {
 }
 
 
+}

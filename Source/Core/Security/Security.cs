@@ -4,9 +4,25 @@ using Microsoft.Boogie;
 
 namespace Core.Security;
 
+// This package implements Modular Product Programs [Eilers, Müller, Hitz, 2018]
+
+// The translation essentially duplicates all variables,
+// to account for potential "minor" executions over which an attacker reasons.
+
+// It adds two basic expressions:
+// - low(e) denotes that expression e is of low sensitivity, semantically e = minor(e)
+// - lowEvent denotes that the control flows can be merged at a particular program point
+
+// Functions with boolean return value and annotated with {: relational } are
+// considered to be relational predicates, all other functions are unchanged.
+
+// TODO:
+// - Currently we enforce the strong property of constant-time execution, which enables lockstep reasoning about branching.
+//   This restriction will be lifted soon once it is clear how to treat unstructured control flow modularly.
+
+// Contributed by: Maximilian Doods and Gidon Ernst <gidon.ernst@lmu.de>
 public static class Security
 {
-
   public static void CalculateMpp(Program program, List<string> exclusions = null)
   {
     exclusions ??= new List<string>();

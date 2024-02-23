@@ -17,7 +17,7 @@ using System.Diagnostics.Contracts;
 using Microsoft.Boogie;
 
 
-
+namespace Microsoft.Boogie {
 
 //-----------------------------------------------------------------------------------
 // Buffer
@@ -1018,3 +1018,4 @@ public class Scanner {
 public delegate void ErrorProc(int n, string filename, int line, int col);
 
 
+}

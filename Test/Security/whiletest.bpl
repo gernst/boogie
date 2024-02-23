@@ -7,7 +7,6 @@ procedure test(x: int)
 {
     var i: int;
 
-    assume low(i);
     i := 0;
     while (i < x)
         invariant i >= 0;
