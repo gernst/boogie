@@ -1,111 +1,92 @@
-using System;
-using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
-using System.Timers;
-using Microsoft.Boogie;
-using Util = Core.Security.Util;
 
-namespace Core;
+namespace Microsoft.Boogie {
 
-public class MinorizeVisitor : Duplicator
-{
-  private readonly Dictionary<string, (Variable, Variable)> _variables;
-  public MinorizeVisitor(Dictionary<string, (Variable, Variable)> allVariables)
-  {
-    _variables = allVariables;
-  }
-
-  public MinorizeVisitor AddTemporaryVariables(List<Variable> tempVars)
-  {
-    var duplicator = new Duplicator();
-
-    var dupedVariables = tempVars.Select(v =>
-    {
-      var minorVar = duplicator.VisitVariable(v);
-      minorVar.Name = "minor_" + minorVar.Name;
-      return (v, minorVar);
-    }).ToList();
-
-    return AddTemporaryVariables(dupedVariables);
-  }
-  public MinorizeVisitor AddTemporaryVariables(List<(Variable, Variable)> tempVars)
-  {
-    var combinedVars = new Dictionary<string, (Variable, Variable)>();
-    _variables.ForEach(pair => combinedVars.Add(pair.Key, pair.Value));
-    tempVars.ForEach(tup => combinedVars.Add(tup.Item1.Name, tup));
-    return new MinorizeVisitor(combinedVars);
-  }
-
-  public override LocalVariable VisitLocalVariable(LocalVariable node)
-  {
-    var minorVar = (LocalVariable)_variables[node.Name].Item2;
-    return minorVar;
-  }
-
-  public override BoundVariable VisitBoundVariable(BoundVariable node)
-  {
-    return new BoundVariable(node.tok, new TypedIdent(node.TypedIdent.tok, "minor_" + node.TypedIdent.Name, node.TypedIdent.Type));
-  }
-
-  public override Expr VisitIdentifierExpr(IdentifierExpr node)
-  {
-    if (_variables.TryGetValue(node.Name, out var variable))
-    {
-      return new IdentifierExpr(node.tok, variable.Item2);
+  public class MinorizeVisitor : Duplicator {
+    private readonly Dictionary<string, (Variable, Variable)> _variables;
+    public MinorizeVisitor(Dictionary<string, (Variable, Variable)> allVariables) {
+      _variables = allVariables;
     }
 
-    throw new cce.UnreachableException();
+    public MinorizeVisitor AddTemporaryVariables(List<Variable> tempVars) {
+      var duplicator = new Duplicator();
 
-    // return node;
-  }
+      var dupedVariables = tempVars.Select(v => {
+        var minorVar = duplicator.VisitVariable(v);
+        minorVar.Name = "minor_" + minorVar.Name;
+        return (v, minorVar);
+      }).ToList();
 
-  public override Expr VisitForallExpr(ForallExpr node)
-  {
-    var updatedVisitor = this.AddTemporaryVariables(node.Dummies.Select(v => (v, v)).ToList());
-    return new ForallExpr(
-      node.tok,
-      node.TypeParameters,
-      node.Dummies,
-      null,
-      node.Triggers != null ? updatedVisitor.VisitTrigger(node.Triggers) : null,
-      updatedVisitor.VisitExpr(node.Body));
-  }
+      return AddTemporaryVariables(dupedVariables);
+    }
+    public MinorizeVisitor AddTemporaryVariables(List<(Variable, Variable)> tempVars) {
+      var combinedVars = new Dictionary<string, (Variable, Variable)>();
+      _variables.ForEach(pair => combinedVars.Add(pair.Key, pair.Value));
+      tempVars.ForEach(tup => combinedVars.Add(tup.Item1.Name, tup));
+      return new MinorizeVisitor(combinedVars);
+    }
 
-  public override Expr VisitExistsExpr(ExistsExpr node)
-  {
-    var updatedVisitor = this.AddTemporaryVariables(node.Dummies.Select(v => (v, v)).ToList());
-    return new ExistsExpr(
-      node.tok,
-      node.TypeParameters,
-      node.Dummies,
-      null,
-      node.Triggers != null ? updatedVisitor.VisitTrigger(node.Triggers) : null,
-      updatedVisitor.VisitExpr(node.Body));
-  }
+    public override LocalVariable VisitLocalVariable(LocalVariable node) {
+      var minorVar = (LocalVariable)_variables[node.Name].Item2;
+      return minorVar;
+    }
 
-  public override Expr VisitLambdaExpr(LambdaExpr node)
-  {
-    return new LambdaExpr(node.tok, node.TypeParameters, node.Dummies, node.Attributes,
-      this.AddTemporaryVariables(node.Dummies.Select(v => (v, v)).ToList()).VisitExpr(node.Body));
-  }
+    public override BoundVariable VisitBoundVariable(BoundVariable node) {
+      return new BoundVariable(node.tok, new TypedIdent(node.TypedIdent.tok, "minor_" + node.TypedIdent.Name, node.TypedIdent.Type));
+    }
 
-  public override TypedIdent VisitTypedIdent(TypedIdent node)
-  {
-    return new TypedIdent(node.tok, Util.MinorPrefix + node.Name, node.Type)
-    {
-      WhereExpr = node.WhereExpr != null ? VisitExpr(node.WhereExpr) : null
-    };
-  }
+    public override Expr VisitIdentifierExpr(IdentifierExpr node) {
+      if (_variables.TryGetValue(node.Name, out var variable)) {
+        return new IdentifierExpr(node.tok, variable.Item2);
+      }
 
-  public override Expr VisitLetExpr(LetExpr node)
-  {
-    var updatedVisitor = this.AddTemporaryVariables(node.Dummies.Select(v => (v, v)).ToList());
-    return new LetExpr(
-      node.tok,
-      node.Dummies,
-      updatedVisitor.VisitExprSeq(node.Rhss).ToList(),
-      null,
-      updatedVisitor.VisitExpr(node.Body));
+      throw new cce.UnreachableException();
+
+      // return node;
+    }
+
+    public override Expr VisitForallExpr(ForallExpr node) {
+      var updatedVisitor = this.AddTemporaryVariables(node.Dummies.Select(v => (v, v)).ToList());
+      return new ForallExpr(
+        node.tok,
+        node.TypeParameters,
+        node.Dummies,
+        null,
+        node.Triggers != null ? updatedVisitor.VisitTrigger(node.Triggers) : null,
+        updatedVisitor.VisitExpr(node.Body));
+    }
+
+    public override Expr VisitExistsExpr(ExistsExpr node) {
+      var updatedVisitor = this.AddTemporaryVariables(node.Dummies.Select(v => (v, v)).ToList());
+      return new ExistsExpr(
+        node.tok,
+        node.TypeParameters,
+        node.Dummies,
+        null,
+        node.Triggers != null ? updatedVisitor.VisitTrigger(node.Triggers) : null,
+        updatedVisitor.VisitExpr(node.Body));
+    }
+
+    public override Expr VisitLambdaExpr(LambdaExpr node) {
+      return new LambdaExpr(node.tok, node.TypeParameters, node.Dummies, node.Attributes,
+        this.AddTemporaryVariables(node.Dummies.Select(v => (v, v)).ToList()).VisitExpr(node.Body));
+    }
+
+    public override TypedIdent VisitTypedIdent(TypedIdent node) {
+      return new TypedIdent(node.tok, RelationalDuplicator.MinorPrefix + node.Name, node.Type) {
+        WhereExpr = node.WhereExpr != null ? VisitExpr(node.WhereExpr) : null
+      };
+    }
+
+    public override Expr VisitLetExpr(LetExpr node) {
+      var updatedVisitor = this.AddTemporaryVariables(node.Dummies.Select(v => (v, v)).ToList());
+      return new LetExpr(
+        node.tok,
+        node.Dummies,
+        updatedVisitor.VisitExprSeq(node.Rhss).ToList(),
+        null,
+        updatedVisitor.VisitExpr(node.Body));
+    }
   }
 }

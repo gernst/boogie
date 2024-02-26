@@ -1,201 +1,167 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Linq.Expressions;
-using System.Reflection.Metadata;
-using System.Runtime.InteropServices;
-using System.Runtime.Intrinsics.X86;
-using System.Security;
-using Microsoft.Boogie;
-using LocalVariable = Microsoft.Boogie.LocalVariable;
-using Type = Microsoft.Boogie.Type;
-using Util = Core.Security.Util;
 
-namespace Core;
+namespace Microsoft.Boogie {
 
-public class ImplementationMpp
-{
-  private List<(Variable, Variable)> _localVariables;
-  private List<(Variable, Variable)> _inParams;
-  private List<(Variable, Variable)> _outParams;
+  public class ImplementationMpp {
+    private List<(Variable, Variable)> _localVariables;
+    private List<(Variable, Variable)> _inParams;
+    private List<(Variable, Variable)> _outParams;
 
-  public List<Variable> LocalVariables => Util.FlattenVarList(_localVariables);
+    public List<Variable> LocalVariables => RelationalDuplicator.FlattenVarList(_localVariables);
 
-  public List<Variable> InParams => Util.FlattenVarList(_inParams);
+    public List<Variable> InParams => RelationalDuplicator.FlattenVarList(_inParams);
 
-  public List<Variable> OutParams => Util.FlattenVarList(_outParams);
+    public List<Variable> OutParams => RelationalDuplicator.FlattenVarList(_outParams);
 
-  public StmtList StructuredStmts { get; }
+    public StmtList StructuredStmts { get; }
 
-  public Implementation Implementation { get; }
+    public Implementation Implementation { get; }
 
-  private MinorizeVisitor _minorizer;
-  private int _anon = 0;
-  private readonly List<string> _exclusions;
-  private Program _program;
+    private MinorizeVisitor _minorizer;
+    private int _anon = 0;
+    private readonly List<string> _exclusions;
+    private Program _program;
 
-  public ImplementationMpp(Program program, Implementation implementation, Dictionary<string, (Variable, Variable)> globalVariableDict, List<string> exclusions)
-  {
-    _exclusions = exclusions;
-    _program = program;
-    var minorizer = new MinorizeVisitor(globalVariableDict);
-    _localVariables = Util.DuplicateVariables(implementation.LocVars, minorizer);
-    _inParams = Util.CalculateInParams(implementation.InParams, minorizer);
-    _outParams = Util.DuplicateVariables(implementation.OutParams, minorizer);
+    public ImplementationMpp(Program program, Implementation implementation, Dictionary<string, (Variable, Variable)> globalVariableDict, List<string> exclusions) {
+      _exclusions = exclusions;
+      _program = program;
+      var minorizer = new MinorizeVisitor(globalVariableDict);
+      _localVariables = RelationalDuplicator.DuplicateVariables(implementation.LocVars, minorizer);
+      _inParams = RelationalDuplicator.CalculateInParams(implementation.InParams, minorizer);
+      _outParams = RelationalDuplicator.DuplicateVariables(implementation.OutParams, minorizer);
 
-    _minorizer = minorizer.AddTemporaryVariables(_inParams.Concat(_outParams).Concat(_localVariables)
-      .ToList());
+      _minorizer = minorizer.AddTemporaryVariables(_inParams.Concat(_outParams).Concat(_localVariables)
+        .ToList());
 
-    StructuredStmts = CalculateStructuredStmts(implementation.StructuredStmts);
+      StructuredStmts = CalculateStructuredStmts(implementation.StructuredStmts);
 
-    Implementation = new Implementation(
-      implementation.tok,
-      implementation.Name,
-      implementation.TypeParameters,
-      Util.FlattenVarList(_inParams),
-      Util.FlattenVarList(_outParams),
-      Util.FlattenVarList(_localVariables),
-      StructuredStmts);
-  }
-
-  public StmtList CalculateStructuredStmts(StmtList structuredStmts, bool isExcluded = false)
-  {
-    if (structuredStmts == null)
-    {
-      return null;
+      Implementation = new Implementation(
+        implementation.tok,
+        implementation.Name,
+        implementation.TypeParameters,
+        RelationalDuplicator.FlattenVarList(_inParams),
+        RelationalDuplicator.FlattenVarList(_outParams),
+        RelationalDuplicator.FlattenVarList(_localVariables),
+        StructuredStmts);
     }
 
-    var newBlocks = new List<BigBlock>();
-
-    foreach (var bb in structuredStmts.BigBlocks)
-    {
-      bb.simpleCmds = DuplicateSimpleCommands(bb.simpleCmds);
-      if (bb.ec is IfCmd originalIfCmd)
-      {
-        UpdateIfCmd(originalIfCmd, bb.simpleCmds, isExcluded);
+    public StmtList CalculateStructuredStmts(StmtList structuredStmts, bool isExcluded = false) {
+      if (structuredStmts == null) {
+        return null;
       }
-      else if (bb.ec is WhileCmd whileCmd)
-      {
-        bb.simpleCmds.Add(AssertLow(whileCmd.Guard));
-        whileCmd.Invariants.ForEach(x => { x.Expr = Util.SolveExpr(_program, x.Expr, _minorizer); });
 
-        whileCmd.Body = CalculateStructuredStmts(whileCmd.Body);
+      var newBlocks = new List<BigBlock>();
 
-      }
-      else if (bb.ec is BreakCmd breakCmd)
-      {
-        breakCmd.BreakEnclosure = null;
-      }
-      
-      newBlocks.Add(bb);
-      
+      foreach (var bb in structuredStmts.BigBlocks) {
+        bb.simpleCmds = DuplicateSimpleCommands(bb.simpleCmds);
+        if (bb.ec is IfCmd originalIfCmd) {
+          UpdateIfCmd(originalIfCmd, bb.simpleCmds, isExcluded);
+        } else if (bb.ec is WhileCmd whileCmd) {
+          bb.simpleCmds.Add(AssertLow(whileCmd.Guard));
+          whileCmd.Invariants.ForEach(x => { x.Expr = RelationalDuplicator.SolveExpr(_program, x.Expr, _minorizer); });
 
-    }
+          whileCmd.Body = CalculateStructuredStmts(whileCmd.Body);
 
-    return new StmtList(newBlocks, structuredStmts.EndCurly);
-  }
-
-  private List<Cmd> DuplicateSimpleCommands(List<Cmd> simpleCmds)
-  {
-    var duplicatedSimpleCmds = new List<Cmd>();
-    foreach (var c in simpleCmds)
-    {
-      switch (c)
-      {
-        case AssignCmd assignCmd:
-        {
-          var lhss = new List<AssignLhs>();
-          foreach (var lhs in assignCmd.Lhss)
-          {
-            var correspondingVariable = (IdentifierExpr)_minorizer.VisitIdentifierExpr(lhs.DeepAssignedIdentifier);
-            var minorLhs = new SimpleAssignLhs(Token.NoToken,
-              correspondingVariable);
-
-            lhss.Add(minorLhs);
-          }
-
-          var minorAssignCmd = new AssignCmd(Token.NoToken, lhss,
-            assignCmd.Rhss.Select(e => _minorizer.VisitExpr(e)).ToList());
-
-          duplicatedSimpleCmds.AddRange(new List<Cmd> { assignCmd, minorAssignCmd });
-          break;
+        } else if (bb.ec is BreakCmd breakCmd) {
+          breakCmd.BreakEnclosure = null;
         }
-        case AssertCmd or AssumeCmd:
-        {
-          Cmd solvedCmd = c switch
-          {
-            AssertCmd a => new AssertCmd(a.tok, Util.SolveExpr(_program, a.Expr, _minorizer)),
-            AssumeCmd a => new AssumeCmd(a.tok, Util.SolveExpr(_program, a.Expr, _minorizer)),
-            _ => throw new cce.UnreachableException()
-          };
+
+        newBlocks.Add(bb);
 
 
-          duplicatedSimpleCmds.Add(solvedCmd);
-          break;
+      }
+
+      return new StmtList(newBlocks, structuredStmts.EndCurly);
+    }
+
+    private List<Cmd> DuplicateSimpleCommands(List<Cmd> simpleCmds) {
+      var duplicatedSimpleCmds = new List<Cmd>();
+      foreach (var c in simpleCmds) {
+        switch (c) {
+          case AssignCmd assignCmd: {
+              var lhss = new List<AssignLhs>();
+              foreach (var lhs in assignCmd.Lhss) {
+                var correspondingVariable = (IdentifierExpr)_minorizer.VisitIdentifierExpr(lhs.DeepAssignedIdentifier);
+                var minorLhs = new SimpleAssignLhs(Token.NoToken,
+                  correspondingVariable);
+
+                lhss.Add(minorLhs);
+              }
+
+              var minorAssignCmd = new AssignCmd(Token.NoToken, lhss,
+                assignCmd.Rhss.Select(e => _minorizer.VisitExpr(e)).ToList());
+
+              duplicatedSimpleCmds.AddRange(new List<Cmd> { assignCmd, minorAssignCmd });
+              break;
+            }
+          case AssertCmd or AssumeCmd: {
+              Cmd solvedCmd = c switch {
+                AssertCmd a => new AssertCmd(a.tok, RelationalDuplicator.SolveExpr(_program, a.Expr, _minorizer)),
+                AssumeCmd a => new AssumeCmd(a.tok, RelationalDuplicator.SolveExpr(_program, a.Expr, _minorizer)),
+                _ => throw new cce.UnreachableException()
+              };
+
+
+              duplicatedSimpleCmds.Add(solvedCmd);
+              break;
+            }
+          case CallCmd callCmd: {
+              callCmd.Outs = callCmd.Outs.SelectMany(i => new List<IdentifierExpr>
+                { i, (IdentifierExpr)_minorizer.VisitIdentifierExpr(i) }).ToList();
+              callCmd.Ins = callCmd.Ins.SelectMany(i => new List<Expr>
+                { i, _minorizer.VisitExpr(i) }).ToList();
+              duplicatedSimpleCmds.Add(callCmd);
+              break;
+            }
+          case CommentCmd:
+            duplicatedSimpleCmds.Add(c);
+            break;
+          default:
+            duplicatedSimpleCmds.AddRange(new List<Cmd> { c, (Cmd)_minorizer.Visit(c.Clone()) });
+            break;
         }
-        case CallCmd callCmd:
-        {
-          callCmd.Outs = callCmd.Outs.SelectMany(i => new List<IdentifierExpr>
-            { i, (IdentifierExpr)_minorizer.VisitIdentifierExpr(i) }).ToList();
-          callCmd.Ins = callCmd.Ins.SelectMany(i => new List<Expr>
-            { i, _minorizer.VisitExpr(i) }).ToList();
-          duplicatedSimpleCmds.Add(callCmd);
-          break;
-        }
-        case CommentCmd:
-          duplicatedSimpleCmds.Add(c);
-          break;
-        default:
-          duplicatedSimpleCmds.AddRange(new List<Cmd> { c, (Cmd)_minorizer.Visit(c.Clone()) });
-          break;
+      }
+
+      return duplicatedSimpleCmds;
+    }
+
+    private void UpdateIfCmd(IfCmd ifCmd, ICollection<Cmd> simpleCmds, bool isExcluded = false) {
+      isExcluded = IsExcluded(ifCmd.thn.Labels) || isExcluded;
+      if (ifCmd.Guard != null && !isExcluded) {
+        simpleCmds.Add(AssertLow(ifCmd.Guard));
+      }
+
+      ifCmd.thn = CalculateStructuredStmts(ifCmd.thn, isExcluded);
+      ifCmd.elseBlock = CalculateStructuredStmts(ifCmd.elseBlock, isExcluded);
+      if (ifCmd.elseIf != null) {
+        UpdateIfCmd(ifCmd.elseIf, simpleCmds, isExcluded);
       }
     }
 
-    return duplicatedSimpleCmds;
-  }
-
-  private void UpdateIfCmd(IfCmd ifCmd, ICollection<Cmd> simpleCmds, bool isExcluded = false)
-  {
-    isExcluded = IsExcluded(ifCmd.thn.Labels) || isExcluded;
-    if (ifCmd.Guard != null && !isExcluded)
-    {
-      simpleCmds.Add(AssertLow(ifCmd.Guard));
+    private AssertCmd AssertLow(Expr expr) {
+      return new AssertCmd(expr.tok, Expr.Eq(expr, _minorizer.VisitExpr(expr)));
     }
 
-    ifCmd.thn = CalculateStructuredStmts(ifCmd.thn, isExcluded);
-    ifCmd.elseBlock = CalculateStructuredStmts(ifCmd.elseBlock, isExcluded);
-    if (ifCmd.elseIf != null)
-    {
-      UpdateIfCmd(ifCmd.elseIf, simpleCmds, isExcluded);
+    private int FreshAnon() {
+      return _anon++;
     }
-  }
 
-  private AssertCmd AssertLow(Expr expr)
-  {
-    return new AssertCmd(expr.tok, Expr.Eq(expr, _minorizer.VisitExpr(expr)));
-  }
+    private List<(Variable, Variable)> AddLocalVars(List<Variable> variables) {
+      var duplicatedVars = RelationalDuplicator.DuplicateVariables(variables, _minorizer);
+      _minorizer = _minorizer.AddTemporaryVariables(duplicatedVars);
+      _localVariables.AddRange(duplicatedVars);
+      return duplicatedVars;
+    }
 
-  private int FreshAnon()
-  {
-    return _anon++;
-  }
+    private Type GetTypeFromVarName(String name) {
+      return _localVariables.Select(x => x.Item1).First(x => x.Name.Equals(name)).TypedIdent.Type;
+    }
 
-  private List<(Variable, Variable)> AddLocalVars(List<Variable> variables)
-  {
-    var duplicatedVars = Util.DuplicateVariables(variables, _minorizer);
-    _minorizer = _minorizer.AddTemporaryVariables(duplicatedVars);
-    _localVariables.AddRange(duplicatedVars);
-    return duplicatedVars;
-  }
+    private bool IsExcluded(IEnumerable<string> labels) {
+      return _exclusions.Exists(e => labels.ToList().Exists(l => l.Contains(e)));
+    }
 
-  private Type GetTypeFromVarName(String name)
-  {
-    return _localVariables.Select(x => x.Item1).First(x => x.Name.Equals(name)).TypedIdent.Type;
   }
-
-  private bool IsExcluded(IEnumerable<string> labels)
-  {
-    return _exclusions.Exists(e => labels.ToList().Exists(l => l.Contains(e)));
-  }
-
 }

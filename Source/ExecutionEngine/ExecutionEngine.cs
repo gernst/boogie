@@ -1,22 +1,15 @@
 ﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Collections.Specialized;
 using System.Diagnostics.Contracts;
 using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using VC;
-using BoogiePL = Microsoft.Boogie;
 using System.Runtime.Caching;
 using System.Diagnostics;
 using System.Reactive.Linq;
-using System.Reactive.Subjects;
-using System.Reactive.Threading.Tasks;
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices.ComTypes;
-using Core.Security;
 using VCGeneration;
 
 namespace Microsoft.Boogie
@@ -152,12 +145,7 @@ namespace Microsoft.Boogie
         PrintBplFile(Options.PrintFile, program, false, true, Options.PrettyPrint);
       }
 
-      if (Options.SecurityVerify) {
-        Security.CalculateMpp(program);
-        // PrintBplFile("-", program, false, false, Options.PrettyPrint);
-      } else {
-        
-      }
+      CalculateMpp(program);
 
       PipelineOutcome outcome = ResolveAndTypecheck(program, bplFileName, out var civlTypeChecker);
       if (outcome != PipelineOutcome.ResolvedAndTypeChecked) {
@@ -251,6 +239,13 @@ namespace Microsoft.Boogie
       {
         new ModSetCollector(Options).DoModSetAnalysis(program);
       }
+    }
+
+    public void CalculateMpp(Program program, List<string> exclusions = null) {
+      // if (Options.SecurityVerify) {
+        Security.CalculateMpp(program, exclusions);
+        PrintBplFile(".debug.bpl", program, true, true, true);
+      // }
     }
 
 
@@ -713,6 +708,8 @@ namespace Microsoft.Boogie
     }
 
     public IReadOnlyList<IVerificationTask> GetVerificationTasks(Program program) {
+      CalculateMpp(program);
+
       program.Resolve(Options);
       program.Typecheck(Options);
 

@@ -240,7 +240,7 @@ namespace Microsoft.Boogie
     public int /*(0:3)*/
       ErrorTrace { get; set; } = 1;
     
-    public bool SecurityVerify { get; set; }
+    public bool SecurityVerify { get; set; } = false;
 
     public bool IntraproceduralInfer { get; set; }= true;
 
