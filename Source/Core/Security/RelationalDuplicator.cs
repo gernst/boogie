@@ -72,59 +72,71 @@ namespace Microsoft.Boogie {
       return duplicatedVariables;
     }
 
+    public static Expr RelationalExpr(Program program, Expr expr, MinorizeVisitor minorizer) {
+      switch (expr) {
+        case LowExpr l:
+          return Expr.Eq(l.Expr, minorizer.VisitExpr(l.Expr));
+        case NAryExpr n:
+          // we just called isRelational, so .Func is guaranteed to be set for FunctionCalls
+          var funCall = n.Fun as FunctionCall;
+          bool relational = false;
+
+          if (funCall != null && funCall.Func.CheckBooleanAttribute("relational", ref relational) && relational) {
+            var relationalFunction = program.FindFunction(funCall.FunctionName + RelationalSuffix);
+            var minorArgs = minorizer.VisitExprSeq(n.Args);
+            var args = RelationalDuplicator.FlattenLists<Expr>(n.Args.Zip(minorArgs).ToList());
+            return new NAryExpr(n.tok, new FunctionCall(relationalFunction), args);
+          } else {
+            return new NAryExpr(n.tok, n.Fun, n.Args.Select((e => SolveExpr(program, e, minorizer))).ToList());
+          }
+        case ExistsExpr e: {
+            var duplicatedBounds = RelationalDuplicator.DuplicateVariables(e.Dummies, minorizer);
+            var adaptedMinorizer = minorizer.AddTemporaryVariables(duplicatedBounds);
+            return new ExistsExpr(
+              e.tok,
+              RelationalDuplicator.FlattenVarList(duplicatedBounds),
+              SolveTrigger(e.Triggers, program, adaptedMinorizer),
+              SolveExpr(program, e.Body, adaptedMinorizer));
+          }
+        case ForallExpr f: {
+            var duplicatedBounds = RelationalDuplicator.DuplicateVariables(f.Dummies, minorizer);
+            var adaptedMinorizer = minorizer.AddTemporaryVariables(duplicatedBounds);
+            return new ForallExpr(
+              f.tok,
+              RelationalDuplicator.FlattenVarList(duplicatedBounds),
+              SolveTrigger(f.Triggers, program, adaptedMinorizer),
+              SolveExpr(program, f.Body, adaptedMinorizer));
+          }
+        case LetExpr l: {
+            var duplicatedBounds = RelationalDuplicator.DuplicateVariables(l.Dummies, minorizer);
+            var adaptedMinorizer = minorizer.AddTemporaryVariables(duplicatedBounds);
+            var minorizedRhss = adaptedMinorizer.VisitExprSeq(l.Rhss);
+            return new LetExpr(
+              l.tok,
+              RelationalDuplicator.FlattenVarList(duplicatedBounds),
+              FlattenLists(l.Rhss.Zip(minorizedRhss).ToList()),
+              null,
+              SolveExpr(program, l.Body, adaptedMinorizer));
+          }
+        default:
+          throw new ArgumentException(expr.ToString());
+      }
+    }
+
     public static Expr SolveExpr(Program program, Expr expr, MinorizeVisitor minorizer) {
       if (RelationalChecker.IsRelational(program, expr)) {
-        switch (expr) {
-          case LowExpr l:
-            return Expr.Eq(l.Expr, minorizer.VisitExpr(l.Expr));
-          case NAryExpr n:
-            // we just called isRelational, so .Func is guaranteed to be set for FunctionCalls
-            var funCall = n.Fun as FunctionCall;
-            bool relational = false;
-
-            if (funCall != null && funCall.Func.CheckBooleanAttribute("relational", ref relational) && relational) {
-              var relationalFunction = program.FindFunction(funCall.FunctionName + RelationalSuffix);
-              var minorArgs = minorizer.VisitExprSeq(n.Args);
-              var args = RelationalDuplicator.FlattenLists<Expr>(n.Args.Zip(minorArgs).ToList());
-              return new NAryExpr(n.tok, new FunctionCall(relationalFunction), args);
-            } else {
-              return new NAryExpr(n.tok, n.Fun, n.Args.Select((e => SolveExpr(program, e, minorizer))).ToList());
-            }
-          case ExistsExpr e: {
-              var duplicatedBounds = RelationalDuplicator.DuplicateVariables(e.Dummies, minorizer);
-              var adaptedMinorizer = minorizer.AddTemporaryVariables(duplicatedBounds);
-              return new ExistsExpr(
-                e.tok,
-                RelationalDuplicator.FlattenVarList(duplicatedBounds),
-                SolveTrigger(e.Triggers, program, adaptedMinorizer),
-                SolveExpr(program, e.Body, adaptedMinorizer));
-            }
-          case ForallExpr f: {
-              var duplicatedBounds = RelationalDuplicator.DuplicateVariables(f.Dummies, minorizer);
-              var adaptedMinorizer = minorizer.AddTemporaryVariables(duplicatedBounds);
-              return new ForallExpr(
-                f.tok,
-                RelationalDuplicator.FlattenVarList(duplicatedBounds),
-                SolveTrigger(f.Triggers, program, adaptedMinorizer),
-                SolveExpr(program, f.Body, adaptedMinorizer));
-            }
-          case LetExpr l: {
-              var duplicatedBounds = RelationalDuplicator.DuplicateVariables(l.Dummies, minorizer);
-              var adaptedMinorizer = minorizer.AddTemporaryVariables(duplicatedBounds);
-              var minorizedRhss = adaptedMinorizer.VisitExprSeq(l.Rhss);
-              return new LetExpr(
-                l.tok,
-                RelationalDuplicator.FlattenVarList(duplicatedBounds),
-                FlattenLists(l.Rhss.Zip(minorizedRhss).ToList()),
-                null,
-                SolveExpr(program, l.Body, adaptedMinorizer));
-            }
-          default:
-            throw new ArgumentException(expr.ToString());
-        }
+        return RelationalExpr(program, expr, minorizer);
+      } else {
+        return Expr.And(expr, minorizer.VisitExpr(expr));
       }
+    }
 
-      return Expr.And(expr, minorizer.VisitExpr(expr));
+    public static List<Expr> SolveTrigger(Program program, Expr expr, MinorizeVisitor minorizer) {
+      if (RelationalChecker.IsRelational(program, expr)) {
+        return new List<Expr> { RelationalExpr(program, expr, minorizer) };
+      } else {
+        return new List<Expr> { expr, minorizer.VisitExpr(expr) };
+      }
     }
 
     private static Trigger SolveTrigger(Trigger trigger, Program program, MinorizeVisitor minorizer) {
@@ -139,10 +151,18 @@ namespace Microsoft.Boogie {
         newNext = SolveTrigger(origNext, program, minorizer);
       }
 
+      foreach (var tr in trigger.Tr) {
+        Console.WriteLine("trigger: " + tr);
+      }
+
+      var trs = trigger.Tr
+        .SelectMany(tr => SolveTrigger(program, tr, minorizer))
+        .ToList();
+
       return new Trigger(
         trigger.tok,
         trigger.Pos,
-        trigger.Tr.Select(tr => SolveExpr(program, tr, minorizer)),
+        trs,
         newNext
         );
     }

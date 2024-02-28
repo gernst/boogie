@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -17,12 +18,14 @@ namespace Microsoft.Boogie {
 
   // TODO:
   // - Currently we enforce the strong property of constant-time execution, which enables lockstep reasoning about branching.
-  //   This restriction will be lifted soon once it is clear how to treat unstructured control flow modularly.
+  //   This restriction will be lifted eventually once it is clear how to treat unstructured control flow modularly.
+  // - Integration with the Dafny command line tool is implemented, but not with the language server
 
   // Contributed by: Maximilian Doods and Gidon Ernst <gidon.ernst@lmu.de>
   public static class Security {
     public static void CalculateMpp(Program program, List<string> exclusions = null) {
-      exclusions ??= new List<string>();
+      exclusions ??= new List<string> { "well-formedness", "well_formedness"};
+
       var duplicatedMutGlobals = program.GlobalVariables
         .Where(glob => glob.IsMutable)
         .Select(glob => {
@@ -44,17 +47,19 @@ namespace Microsoft.Boogie {
         .Concat(duplicatedMutGlobals.Select(t => ((Variable)t.glob, (Variable)t.minorGlob)))
         .ToDictionary(t => t.Item1.Name, t => t);
 
+      var emptyDict = new Dictionary<string, (Variable, Variable)>();
+        
       program.AddTopLevelDeclarations(duplicatedMutGlobals.Select(x => x.minorGlob));
 
       var relationalFunctions = program.Functions
         .Where(f => RelationalChecker.IsRelationalFunction(f))
-        .Select(f => FunctionMpp.CalculateFunctionMpp(program, f, globalVariableDict))
+        .Select(f => FunctionMpp.CalculateFunctionMpp(program, f, emptyDict))
         .ToList();
       program.AddTopLevelDeclarations(relationalFunctions);
 
       var relationalAxioms = program.Axioms
         .Where(a => RelationalChecker.IsRelational(program, a))
-        .Select(a => AxiomMpp.CalculateAxiomMpp(program, a, globalVariableDict))
+        .Select(a => AxiomMpp.CalculateAxiomMpp(program, a, emptyDict))
         .ToList();
       program.AddTopLevelDeclarations(relationalAxioms);
 

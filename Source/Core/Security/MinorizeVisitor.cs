@@ -1,26 +1,49 @@
+using System;
 using System.Collections.Generic;
+using System.IO.Pipes;
 using System.Linq;
 
 namespace Microsoft.Boogie {
 
   public class MinorizeVisitor : Duplicator {
-    private readonly Dictionary<string, (Variable, Variable)> _variables;
+    public readonly Dictionary<string, (Variable, Variable)> _variables;
+    
     public MinorizeVisitor(Dictionary<string, (Variable, Variable)> allVariables) {
       _variables = allVariables;
     }
 
     public MinorizeVisitor AddTemporaryVariables(List<Variable> tempVars) {
+      // foreach(var foo in _variables) {
+      //   var name = foo.Key;
+      //   var pair = foo.Value;
+      //   Console.WriteLine("existing var: " + name + " -> " + pair.Item1 + ", " + pair.Item2);
+      // }
+
+      // foreach(var x in tempVars) {
+      //   Console.WriteLine("adding: " + x);
+      // }
+
       var duplicator = new Duplicator();
 
       var dupedVariables = tempVars.Select(v => {
         var minorVar = duplicator.VisitVariable(v);
-        minorVar.Name = "minor_" + minorVar.Name;
+        minorVar.Name = RelationalDuplicator.MinorPrefix + minorVar.Name;
         return (v, minorVar);
       }).ToList();
 
       return AddTemporaryVariables(dupedVariables);
     }
     public MinorizeVisitor AddTemporaryVariables(List<(Variable, Variable)> tempVars) {
+      // foreach(var foo in _variables) {
+      //   var name = foo.Key;
+      //   var pair = foo.Value;
+      //   Console.WriteLine("existing var: " + name + " -> " + pair.Item1 + ", " + pair.Item2);
+      // }
+
+      // foreach(var x in tempVars) {
+      //   Console.WriteLine("adding: " + x);
+      // }
+
       var combinedVars = new Dictionary<string, (Variable, Variable)>();
       _variables.ForEach(pair => combinedVars.Add(pair.Key, pair.Value));
       tempVars.ForEach(tup => combinedVars.Add(tup.Item1.Name, tup));
@@ -36,13 +59,15 @@ namespace Microsoft.Boogie {
       return new BoundVariable(node.tok, new TypedIdent(node.TypedIdent.tok, "minor_" + node.TypedIdent.Name, node.TypedIdent.Type));
     }
 
+    // unresolved identifiers, such as variables but also global constants
     public override Expr VisitIdentifierExpr(IdentifierExpr node) {
       if (_variables.TryGetValue(node.Name, out var variable)) {
         return new IdentifierExpr(node.tok, variable.Item2);
+      } else {
+        // Console.WriteLine("missing variable: " + node);
+        // throw new cce.UnreachableException();
+        return base.VisitIdentifierExpr(node);
       }
-
-      throw new cce.UnreachableException();
-
       // return node;
     }
 

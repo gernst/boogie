@@ -5,6 +5,13 @@ namespace Microsoft.Boogie {
   public class RelationalChecker : ReadOnlyVisitor {
     Program _program;
 
+    private bool isRelational;
+
+    private RelationalChecker(Program program) {
+      _program = program;
+      isRelational = false;
+    }
+
     public static bool IsRelational(Program program, Absy absy) {
       var checker = new RelationalChecker(program);
       checker.Visit(absy);
@@ -19,13 +26,6 @@ namespace Microsoft.Boogie {
 
     public static bool IsExcludedRelationalProcedure(Declaration dec, List<string> exclusions) {
       return dec is NamedDeclaration namedDec && exclusions.Exists(e => namedDec.VerboseName.Contains(e));
-    }
-
-    private bool isRelational;
-
-    private RelationalChecker(Program program) {
-      _program = program;
-      isRelational = false;
     }
 
     public override Expr VisitLowExpr(LowExpr node) {
