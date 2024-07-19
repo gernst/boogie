@@ -242,10 +242,10 @@ namespace Microsoft.Boogie
     }
 
     public void CalculateMpp(Program program, List<string> exclusions = null) {
-      // if (Options.SecurityVerify) {
+      if (Options.SecurityVerify) {
         Security.CalculateMpp(program, exclusions);
         PrintBplFile(".debug.bpl", program, true, true, true);
-      // }
+      }
     }
 
 

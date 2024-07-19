@@ -151,10 +151,6 @@ namespace Microsoft.Boogie {
         newNext = SolveTrigger(origNext, program, minorizer);
       }
 
-      foreach (var tr in trigger.Tr) {
-        Console.WriteLine("trigger: " + tr);
-      }
-
       var trs = trigger.Tr
         .SelectMany(tr => SolveTrigger(program, tr, minorizer))
         .ToList();

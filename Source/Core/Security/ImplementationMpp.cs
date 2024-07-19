@@ -130,8 +130,9 @@ namespace Microsoft.Boogie {
     private void UpdateIfCmd(IfCmd ifCmd, ICollection<Cmd> simpleCmds, bool isExcluded = false) {
       isExcluded = IsExcluded(ifCmd.thn.Labels) || isExcluded;
       if (ifCmd.Guard != null && !isExcluded) {
-        simpleCmds.Add(AssertLow(ifCmd.Guard));
+        simpleCmds.Add(AssumeLow(ifCmd.Guard));
       }
+
 
       ifCmd.thn = CalculateStructuredStmts(ifCmd.thn, isExcluded);
       ifCmd.elseBlock = CalculateStructuredStmts(ifCmd.elseBlock, isExcluded);
@@ -140,7 +141,12 @@ namespace Microsoft.Boogie {
       }
     }
 
+    private AssumeCmd AssumeLow(Expr expr) {
+      return new AssumeCmd(expr.tok, Expr.Eq(expr, _minorizer.VisitExpr(expr)));
+    }
+
     private AssertCmd AssertLow(Expr expr) {
+      var expr_ = RelationalDuplicator.SolveExpr(_program, expr, _minorizer);
       return new AssertCmd(expr.tok, Expr.Eq(expr, _minorizer.VisitExpr(expr)));
     }
 
